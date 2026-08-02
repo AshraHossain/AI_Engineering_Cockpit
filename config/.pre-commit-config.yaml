@@ -1,0 +1,68 @@
+# Pre-commit hooks for AI_Engineering_Cockpit.
+#
+# This file lives in config/ (not repo root) to keep root-level clutter down,
+# matching the rest of this repo's tool configs (config/ruff.toml,
+# config/pytest.ini, config/mypy.ini). Install with:
+#
+#   uv run pre-commit install -c config/.pre-commit-config.yaml
+#
+# Run manually against all files with:
+#
+#   uv run pre-commit run --all-files -c config/.pre-commit-config.yaml
+
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3.11
+        args: ["--line-length=100"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--config=config/ruff.toml", "--fix"]
+      - id: ruff-format
+        args: ["--config=config/ruff.toml"]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        args: ["--config-file=config/mypy.ini"]
+        additional_dependencies: []
+        exclude: ^(projects/|tests/fixtures/)
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        args: ["-r", "cockpit", "-ll"]
+        files: ^cockpit/
+        pass_filenames: false
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: ^(uv\.lock|\.venv/)

@@ -1,0 +1,23 @@
+# Example Ollama Modelfile for AI Engineering Cockpit (Mac hybrid mode only).
+#
+# Builds a lightly customized llama3 variant with a system prompt tuned for
+# this repo's examples. Windows users can ignore this file entirely — see
+# docs/WINDOWS_VS_MAC.md for why.
+#
+# Usage:
+#   ollama create cockpit-assistant -f models/ollama/Modelfile
+#   ollama run cockpit-assistant
+#
+# See models/ollama/README.md for the full walkthrough.
+
+FROM llama3
+
+# Keep responses grounded and concise for local dev/test use.
+PARAMETER temperature 0.4
+PARAMETER num_ctx 4096
+
+SYSTEM """
+You are a local development assistant for the AI Engineering Cockpit project.
+Answer concisely. When asked for code, prefer Python 3.11+ with type hints
+and docstrings. If you don't know something, say so instead of guessing.
+"""

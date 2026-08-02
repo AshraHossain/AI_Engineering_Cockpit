@@ -1,0 +1,43 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-markdown:
+    name: Lint & link-check markdown
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Check markdown formatting (mdformat)
+        continue-on-error: true
+        run: uvx --from mdformat --with mdformat-gfm mdformat --check --wrap keep .
+
+      - name: Check for broken links
+        run: |
+          uvx --from linkcheckmd linkcheckmd . --recurse --branch main || \
+          echo "::warning::linkcheckmd reported issues (or is unavailable) — review markdown links manually."

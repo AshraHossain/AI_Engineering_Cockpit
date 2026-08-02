@@ -1,0 +1,26 @@
+{
+  "description": "Example Hugging Face model IDs relevant to this cockpit. Not exhaustive — pick models based on your own evaluation, not this list alone.",
+  "updated": "2026-08-01",
+  "models": [
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "type": "embedding",
+      "description": "Small, fast sentence-embedding model. Good default for local RAG retrieval (see docs/recipes/basic-rag.md) when you don't want to pay for a cloud embedding API."
+    },
+    {
+      "id": "BAAI/bge-small-en-v1.5",
+      "type": "embedding",
+      "description": "Compact English embedding model with strong retrieval quality for its size; a common alternative to MiniLM for RAG pipelines."
+    },
+    {
+      "id": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "type": "generation",
+      "description": "General-purpose instruction-tuned chat model. Same family as the default model pulled via Ollama for local generation (models/ollama/Modelfile)."
+    },
+    {
+      "id": "mistralai/Mistral-7B-Instruct-v0.3",
+      "type": "generation",
+      "description": "Compact instruction-tuned generation model; a lighter-weight alternative to Llama 3 for local/offline experimentation."
+    }
+  ]
+}

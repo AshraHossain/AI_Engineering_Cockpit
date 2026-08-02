@@ -1,0 +1,40 @@
+Retrieval-Augmented Generation, or RAG, is a technique that combines a
+search step with a language model generation step. Instead of relying only
+on what a model memorized during training, RAG first retrieves relevant
+passages from an external corpus and then feeds those passages to the model
+as extra context before it generates an answer. This lets a model answer
+questions about documents it has never seen before, and it reduces the
+chance of the model inventing facts that are not grounded in any source.
+
+The Gemini API is Google's family of large language models, accessible
+through the google-generativeai Python SDK. It supports text generation,
+multi-turn chat, and an embeddings endpoint that converts text into a
+numeric vector representing its meaning. Two pieces of text that mean
+similar things end up with vectors that point in similar directions, which
+is the property retrieval systems rely on.
+
+A vector database is a specialized data store built to hold embedding
+vectors and answer nearest-neighbor queries efficiently at scale, for
+example Pinecone, Weaviate, or Chroma. For a small demo corpus of a few
+documents, a full vector database is unnecessary overhead -- comparing a
+query vector against every chunk with cosine similarity in plain Python is
+fast enough and far simpler to reason about.
+
+Cosine similarity measures the angle between two vectors rather than their
+raw magnitude. A value of 1.0 means the vectors point in exactly the same
+direction, 0.0 means they are unrelated, and -1.0 means they point in
+opposite directions. It is a popular similarity metric for text embeddings
+because it is insensitive to document length.
+
+Chunking is the process of splitting a long document into smaller pieces
+before embedding them. Smaller chunks give more precise retrieval because
+each chunk covers a narrower topic, but chunks that are too small lose
+surrounding context. A common starting point is to split on paragraph
+boundaries, which is what this demo project does.
+
+Prompt augmentation means inserting the retrieved chunks into the prompt
+sent to the language model, usually with an instruction like "answer the
+question using only the context below." This keeps the model's answer
+grounded in the retrieved text instead of relying purely on its own
+training data, and makes it possible to cite which passage the answer came
+from.

@@ -1,0 +1,98 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly scan, catches newly-disclosed CVEs even without code changes.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bandit:
+    name: Static analysis (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run bandit
+        run: uv run bandit -r cockpit -ll -x '*/tests/*'
+
+  secrets-scan:
+    name: Secret scan (detect-secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Scan for committed secrets
+        run: uvx detect-secrets scan --all-files --exclude-files '\.venv|uv\.lock' > /tmp/secrets-scan.json
+
+      - name: Fail if new secrets are found
+        run: |
+          if uvx detect-secrets audit --report --fail-on-unaudited /tmp/secrets-scan.json > /dev/null 2>&1; then
+            echo "No unaudited secrets detected."
+          else
+            python -c "
+          import json
+          data = json.load(open('/tmp/secrets-scan.json'))
+          results = data.get('results', {})
+          if results:
+              print('Potential secrets found:')
+              for path, findings in results.items():
+                  for f in findings:
+                      print(f\"  {path}:{f['line_number']} [{f['type']}]\")
+              raise SystemExit(1)
+          print('No unaudited secrets detected.')
+          "
+          fi
+
+  dependency-audit:
+    name: Dependency vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Export requirements for audit
+        run: uv export --all-groups --no-hashes --format requirements-txt > requirements-audit.txt
+
+      - name: Audit dependencies (pip-audit)
+        run: uvx pip-audit -r requirements-audit.txt --skip-editable

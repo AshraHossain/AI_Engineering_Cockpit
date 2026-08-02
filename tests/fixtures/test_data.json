@@ -1,0 +1,19 @@
+{
+  "description": "Small sample data fixture shared across the repo's test suites.",
+  "documents": [
+    {
+      "id": "doc-1",
+      "text": "The AI Engineering Cockpit is a modular platform for building, testing, and evaluating AI systems."
+    },
+    {
+      "id": "doc-2",
+      "text": "Feature flags in cockpit/config/feature_flags.py control which frameworks are active."
+    },
+    {
+      "id": "doc-3",
+      "text": "Windows deployments are cloud-only; Mac deployments can additionally use local Ollama models."
+    }
+  ],
+  "sample_query": "What frameworks does the platform include?",
+  "use_cases": ["startup", "enterprise", "research", "safety_focused"]
+}

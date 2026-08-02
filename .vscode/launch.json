@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}" }
+    },
+    {
+      "name": "Python: Debug pytest (current file)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v", "-s"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}" }
+    },
+    {
+      "name": "Python: Debug pytest (all)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-c", "config/pytest.ini", "-v"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}" }
+    },
+    {
+      "name": "Python: Run 01-hello-world",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/projects/01-hello-world/src/main.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}/projects/01-hello-world"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+[project]
+name = "hello-world"
+version = "0.1.0"
+description = "Simplest possible working Gemini API call: read a key, send a prompt, print the response."
+authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "google-generativeai>=0.8",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

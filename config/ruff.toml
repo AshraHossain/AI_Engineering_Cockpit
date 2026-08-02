@@ -1,0 +1,79 @@
+# Ruff configuration for AI_Engineering_Cockpit.
+#
+# Lives in config/ (not repo root); invoke with:
+#   uv run ruff check --config config/ruff.toml .
+#   uv run ruff format --config config/ruff.toml .
+
+target-version = "py311"
+line-length = 100
+indent-width = 4
+
+extend-exclude = [
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "*.egg-info",
+    "htmlcov",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "outputs",
+    "models",
+    # Each projects/0X-*/ is its own independently configured sub-project
+    # (own pyproject.toml, own per-file-ignores) -- scanning it under the
+    # root config here would double-lint it with the wrong rules.
+    "projects",
+]
+
+[lint]
+# Comprehensive but not pedantic: catch real bugs, security issues, and
+# maintainability smells without fighting the formatter or demanding
+# docstring perfection everywhere.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (undefined names, unused imports, etc.)
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade (modern Python idioms)
+    "B",    # flake8-bugbear (likely bugs / design smells)
+    "A",    # flake8-builtins (shadowing builtins)
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PTH",  # flake8-use-pathlib
+    "PIE",  # flake8-pie (misc lints)
+    "RET",  # flake8-return
+    "T20",  # flake8-print (no print(), use logging — per repo quality bar)
+    "S",    # flake8-bandit (security lints; bandit itself still runs separately)
+    "ARG",  # flake8-unused-arguments
+    "PERF", # perflint
+    "RUF",  # ruff-specific rules
+]
+
+ignore = [
+    "E501",   # line length is handled by the formatter; avoid double-reporting
+    "S101",   # assert is fine and expected in tests
+    "PTH123", # open() vs Path.open() — not worth enforcing project-wide yet
+]
+
+# Tests get a lighter touch: asserts, occasional unused fixture args, and
+# security lints that are noisy on fixture/mock data are all expected there.
+[lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG001", "ARG002", "S105", "S106"]
+"**/tests/**/*.py" = ["S101", "ARG001", "ARG002", "S105", "S106"]
+"**/test_*.py" = ["S101", "ARG001", "ARG002", "S105", "S106"]
+"scripts/**/*.py" = ["T20"]
+"**/conftest.py" = ["ARG001"]
+
+[lint.isort]
+known-first-party = ["cockpit"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"

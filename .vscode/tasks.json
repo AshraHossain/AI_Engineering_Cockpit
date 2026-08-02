@@ -1,0 +1,54 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "uv: sync (all groups)",
+      "type": "shell",
+      "command": "uv sync --all-groups",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Test: pytest (with coverage)",
+      "type": "shell",
+      "command": "uv run pytest -c config/pytest.ini --rootdir=. --cov --cov-report=term-missing",
+      "problemMatcher": ["$python"],
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Test: run all suites (root + projects)",
+      "type": "shell",
+      "command": "bash scripts/run-tests.sh",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Lint: ruff check",
+      "type": "shell",
+      "command": "uv run ruff check --config config/ruff.toml .",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Format: black + ruff --fix",
+      "type": "shell",
+      "command": "bash scripts/format-code.sh",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Type check: mypy",
+      "type": "shell",
+      "command": "uv run mypy --config-file config/mypy.ini cockpit",
+      "problemMatcher": ["$python"],
+      "group": "test"
+    },
+    {
+      "label": "Security: bandit",
+      "type": "shell",
+      "command": "uv run bandit -r cockpit -ll",
+      "problemMatcher": [],
+      "group": "test"
+    }
+  ]
+}

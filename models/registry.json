@@ -1,0 +1,66 @@
+{
+  "description": "Registry of models available to the AI Engineering Cockpit platform across providers. Update this file when adding or retiring a model reference used by any project.",
+  "updated": "2026-08-01",
+  "models": [
+    {
+      "id": "gemini-1.5-flash",
+      "provider": "gemini",
+      "type": "chat",
+      "notes": "Default low-cost/fast Gemini chat model used by projects/01-hello-world."
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "provider": "gemini",
+      "type": "chat",
+      "notes": "Higher-capability Gemini tier for larger context or more complex reasoning."
+    },
+    {
+      "id": "text-embedding-004",
+      "provider": "gemini",
+      "type": "embedding",
+      "notes": "Gemini embedding model, candidate for projects/02-rag-chatbot retrieval."
+    },
+    {
+      "id": "gpt-4o-mini",
+      "provider": "openai",
+      "type": "chat",
+      "notes": "Low-cost OpenAI chat model used for orchestrator comparisons in projects/03-multi-model-orchestrator."
+    },
+    {
+      "id": "gpt-4o",
+      "provider": "openai",
+      "type": "chat",
+      "notes": "Higher-capability OpenAI tier."
+    },
+    {
+      "id": "text-embedding-3-small",
+      "provider": "openai",
+      "type": "embedding",
+      "notes": "OpenAI embedding model, alternative to Gemini's for RAG retrieval."
+    },
+    {
+      "id": "claude-sonnet",
+      "provider": "anthropic",
+      "type": "chat",
+      "notes": "Balanced Anthropic Claude tier for general orchestration and long-context tasks. Pin an exact dated model version before production use."
+    },
+    {
+      "id": "cockpit-assistant",
+      "provider": "ollama",
+      "type": "chat",
+      "notes": "Local model built from models/ollama/Modelfile (llama3 base with project system prompt). Mac hybrid mode only."
+    },
+    {
+      "id": "llama3",
+      "provider": "ollama",
+      "type": "chat",
+      "notes": "Base local model pulled via `ollama pull llama3`. Mac hybrid mode only."
+    },
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "provider": "hf",
+      "type": "embedding",
+      "notes": "Local/offline embedding option; see models/huggingface/models.json."
+    }
+  ]
+}

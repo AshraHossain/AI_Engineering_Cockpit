@@ -1,0 +1,32 @@
+[project]
+name = "ai-engineering-cockpit"
+version = "0.1.0"
+description = "Production-grade AIDevOps platform: testing, evaluation, red-teaming, security, monitoring, and governance for AI systems."
+authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "google-generativeai>=0.8",
+    "openai>=1.40",
+    "anthropic>=0.34",
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "black>=24.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "bandit>=1.7",
+]
+
+[tool.uv]
+# ponytail: spec called the platform package `platform/`, which shadows stdlib
+# `platform` and caused confirmed pytest INTERNALERROR crashes (sys.path race).
+# Renamed the package to `cockpit/`. Left as an unbuilt/uninstalled project
+# (application, not a library) since nothing else needs to import this by name.
+package = false
