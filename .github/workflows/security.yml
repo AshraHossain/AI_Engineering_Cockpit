@@ -52,7 +52,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Scan for committed secrets
-        run: uvx detect-secrets scan --all-files --exclude-files '\.venv|uv\.lock' > /tmp/secrets-scan.json
+        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock' > /tmp/secrets-scan.json
 
       - name: Fail if new secrets are found
         run: |

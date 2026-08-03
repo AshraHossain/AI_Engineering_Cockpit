@@ -88,9 +88,9 @@ class TestSettings:
 
         settings = get_settings()
 
-        assert settings.gemini_api_key == "test-gemini-key"
-        assert settings.openai_api_key == "test-openai-key"
-        assert settings.anthropic_api_key == "test-anthropic-key"
+        assert settings.gemini_api_key == "test-gemini-key"  # pragma: allowlist secret
+        assert settings.openai_api_key == "test-openai-key"  # pragma: allowlist secret
+        assert settings.anthropic_api_key == "test-anthropic-key"  # pragma: allowlist secret
 
     def test_get_settings_missing_api_keys_are_none(self, clean_env: None) -> None:
         """Unset API keys resolve to None (not an empty string) so callers can `if settings.x:`."""

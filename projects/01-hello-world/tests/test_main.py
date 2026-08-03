@@ -15,7 +15,7 @@ import pytest
 
 def test_get_api_key_returns_value_when_present() -> None:
     """A non-empty GEMINI_API_KEY is returned as-is."""
-    assert main.get_api_key({"GEMINI_API_KEY": "test-key-123"}) == "test-key-123"
+    assert main.get_api_key({"GEMINI_API_KEY": "test-key-123"}) == "test-key-123"  # pragma: allowlist secret
 
 
 def test_get_api_key_strips_whitespace() -> None:
@@ -39,7 +39,7 @@ def test_build_client_configures_sdk_and_returns_model() -> None:
     with patch.dict("sys.modules", {"google.generativeai": fake_genai}):
         client = main.build_client("my-key", model_name="gemini-1.5-flash")
 
-    fake_genai.configure.assert_called_once_with(api_key="my-key")
+    fake_genai.configure.assert_called_once_with(api_key="my-key")  # pragma: allowlist secret
     fake_genai.GenerativeModel.assert_called_once_with("gemini-1.5-flash")
     assert client is fake_model_instance
 

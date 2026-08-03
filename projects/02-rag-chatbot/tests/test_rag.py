@@ -141,7 +141,7 @@ def test_embed_text_returns_vector_from_sdk() -> None:
     with patch.dict("sys.modules", {"google.generativeai": fake_genai}):
         vector = embed_text("some text", "fake-key")
 
-    fake_genai.configure.assert_called_once_with(api_key="fake-key")
+    fake_genai.configure.assert_called_once_with(api_key="fake-key")  # pragma: allowlist secret
     assert vector == [0.1, 0.2, 0.3]
 
 
@@ -235,7 +235,7 @@ def test_answer_question_runs_full_pipeline(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(main, "build_client", lambda api_key: fake_client)
 
     result = main.answer_question(
-        "What is cosine similarity?", api_key="fake-key", corpus=corpus, top_k=1
+        "What is cosine similarity?", api_key="fake-key", corpus=corpus, top_k=1  # pragma: allowlist secret
     )
 
     assert result == "Cosine similarity is a metric."
