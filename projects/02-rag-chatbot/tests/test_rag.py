@@ -399,9 +399,9 @@ def test_answer_question_runs_full_pipeline(monkeypatch: pytest.MonkeyPatch) -> 
 
     result = main.answer_question(
         "What is cosine similarity?",
-        api_key="fake-key",
+        api_key="fake-key",  # pragma: allowlist secret
         corpus=corpus,
-        top_k=1,  # pragma: allowlist secret
+        top_k=1,
     )
 
     assert result == "Cosine similarity is a metric."

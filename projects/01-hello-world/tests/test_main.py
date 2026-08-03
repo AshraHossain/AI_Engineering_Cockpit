@@ -47,9 +47,8 @@ def _fake_client(text: str | None = "ok") -> Any:
 
 def test_get_api_key_returns_value_when_present() -> None:
     """A non-empty GEMINI_API_KEY is returned as-is."""
-    assert (
-        main.get_api_key({"GEMINI_API_KEY": "test-key-123"}) == "test-key-123"
-    )  # pragma: allowlist secret
+    env = {"GEMINI_API_KEY": "test-key-123"}  # pragma: allowlist secret
+    assert main.get_api_key(env) == "test-key-123"  # pragma: allowlist secret
 
 
 def test_get_api_key_strips_whitespace() -> None:
