@@ -1,0 +1,78 @@
+{
+  "name": "cockpit-qa-reference-set",
+  "description": "A small self-contained Q&A reference set about general software and AI engineering concepts. Every reference answer is short, factual, and checkable without external context.",
+  "items": [
+    {
+      "item_id": "q-001-http-404",
+      "question": "In HTTP, what does the status code 404 mean?",
+      "reference_answer": "HTTP status code 404 means Not Found: the server reached the request but has no resource at the requested URL.",
+      "required_keywords": ["404", "not found"]
+    },
+    {
+      "item_id": "q-002-cosine-similarity",
+      "question": "What does cosine similarity measure between two vectors?",
+      "reference_answer": "Cosine similarity measures the cosine of the angle between two vectors, so it compares their direction rather than their magnitude. It ranges from -1 for opposite vectors to 1 for identical directions.",
+      "required_keywords": ["angle", "direction", "magnitude"]
+    },
+    {
+      "item_id": "q-003-idempotent",
+      "question": "What makes an operation idempotent?",
+      "reference_answer": "An operation is idempotent when applying it more than once has the same effect as applying it exactly once, so repeating a request leaves the system in the same state.",
+      "required_keywords": ["same effect", "once", "state"]
+    },
+    {
+      "item_id": "q-004-git-rebase-merge",
+      "question": "How does git rebase differ from git merge?",
+      "reference_answer": "Git merge joins two branches with a new merge commit and preserves the original history. Git rebase instead replays your commits on top of another branch, producing a linear history but rewriting commit hashes.",
+      "required_keywords": ["merge commit", "linear", "history"]
+    },
+    {
+      "item_id": "q-005-rag",
+      "question": "What is Retrieval-Augmented Generation?",
+      "reference_answer": "Retrieval-Augmented Generation retrieves relevant passages from an external corpus and puts them into the prompt as context, so the language model can answer from documents it was never trained on and is less likely to invent facts.",
+      "required_keywords": ["retrieve", "context", "prompt"]
+    },
+    {
+      "item_id": "q-006-prompt-injection",
+      "question": "What is a prompt injection attack?",
+      "reference_answer": "A prompt injection attack hides instructions in untrusted input so the model follows the attacker's instructions instead of the application's system prompt, which can leak the system prompt or trigger unintended actions.",
+      "required_keywords": ["untrusted input", "system prompt", "instructions"]
+    },
+    {
+      "item_id": "q-007-embedding",
+      "question": "What is a text embedding?",
+      "reference_answer": "A text embedding is a fixed-length vector of numbers representing a piece of text, arranged so that texts with similar meaning sit close together in the vector space.",
+      "required_keywords": ["vector", "meaning", "similar"]
+    },
+    {
+      "item_id": "q-008-unit-integration",
+      "question": "What is the difference between a unit test and an integration test?",
+      "reference_answer": "A unit test exercises one component in isolation with its dependencies replaced by fakes, while an integration test runs several real components together to check that they work correctly when combined.",
+      "required_keywords": ["isolation", "dependencies", "together"]
+    },
+    {
+      "item_id": "q-009-temperature",
+      "question": "What does the temperature parameter control in language model sampling?",
+      "reference_answer": "Temperature scales the model's output probabilities before sampling. A low temperature makes generation more deterministic and repetitive, and a high temperature makes it more random and varied.",
+      "required_keywords": ["random", "deterministic", "sampling"]
+    },
+    {
+      "item_id": "q-010-token",
+      "question": "What is a token in the context of a language model?",
+      "reference_answer": "A token is the unit of text a model actually processes, usually a word fragment rather than a whole word. Both billing and context-window limits are counted in tokens, not characters.",
+      "required_keywords": ["unit", "context window", "billing"]
+    },
+    {
+      "item_id": "q-011-acid",
+      "question": "What does ACID stand for in database transactions?",
+      "reference_answer": "ACID stands for Atomicity, Consistency, Isolation, and Durability, the four guarantees a database transaction is expected to provide.",
+      "required_keywords": ["atomicity", "consistency", "isolation", "durability"]
+    },
+    {
+      "item_id": "q-012-hallucination",
+      "question": "What is a hallucination in a language model's output?",
+      "reference_answer": "A hallucination is output that is fluent and confident but factually wrong or unsupported by any source, because the model generates plausible text rather than looking facts up.",
+      "required_keywords": ["confident", "unsupported", "plausible"]
+    }
+  ]
+}

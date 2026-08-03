@@ -1,0 +1,35 @@
+[project]
+name = "batch-pipeline"
+version = "0.1.0"
+description = "Bulk-process records with rate limiting, retries, partial-failure tolerance, and cost accounting."
+authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "google-genai>=1.0",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# "../.." is the repo root. It is `package = false` by design, so it is never
+# installed into this project's venv -- putting it on the path is what lets
+# these tests import the `cockpit.*` utils and monitoring frameworks.
+pythonpath = ["src", "../.."]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# src/main.py prints the CLI's actual output (the run summary, not a
+# diagnostic) -- routing that through logging would prefix every line with
+# timestamps and levels. E402: the sys.path bootstrap for the repo root has
+# to run before the `cockpit.*` imports it enables.
+"src/main.py" = ["T201", "E402"]

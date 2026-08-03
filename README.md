@@ -5,9 +5,9 @@ evaluating, red-teaming, securing, monitoring, and governing AI systems —
 plus a set of runnable example projects that show how the pieces fit
 together in practice.
 
-This is **Tier 1 (MVP)**. Testing and security ship with real, working
-logic; evaluation, red-teaming, monitoring, and governance ship as typed
-skeletons behind feature flags, ready to be filled in as later tiers land.
+**Tier 2 is complete.** Testing, security, evaluation, red-teaming, and
+monitoring all ship with real, working logic and are enabled by default.
+Governance remains a typed skeleton behind a feature flag, pending Tier 3.
 
 ## Quick start (5 minutes)
 
@@ -38,6 +38,10 @@ full walkthrough and troubleshooting.
 - **Security is first-class, not bolted on.** `cockpit/security/` ships
   real regex-based prompt-injection detection and PII masking (with Luhn
   validation to cut credit-card false positives) — not a TODO.
+- **The red-team harness grades your own defenses.** It runs its 32-payload
+  corpus through the injection detector and reports which attacks slip past,
+  so the security module's blind spots are measured rather than assumed.
+  (Today: 12/32 caught — see [docs/SECURITY_COVERAGE.md](docs/SECURITY_COVERAGE.md).)
 - **Every framework is feature-flagged.** `cockpit/config/feature_flags.py`
   gates testing/evaluation/red-teaming/security/monitoring/governance
   independently, with pre-built profiles for startup, enterprise, research,
@@ -67,13 +71,23 @@ tests/        Root-level tests covering cockpit/config/* and repo structure.
 
 ## Examples
 
+Projects 01-05 are standalone. Projects 06-10 additionally import the
+`cockpit/` frameworks — they exist to show the platform in use. Every
+project runs its tests offline with no API key, and 06-10 each support a
+`--dry-run` flag so you can see them work before adding credentials.
+
 | Project | Demonstrates |
 |---|---|
 | [01-hello-world](projects/01-hello-world) | Minimal Gemini API call |
-| [02-rag-chatbot](projects/02-rag-chatbot) | Retrieval-augmented generation |
+| [02-rag-chatbot](projects/02-rag-chatbot) | Retrieval-augmented generation, with task-asymmetric embeddings |
 | [03-multi-model-orchestrator](projects/03-multi-model-orchestrator) | Comparing Gemini vs OpenAI |
 | [04-streaming-responses](projects/04-streaming-responses) | Streaming model output |
 | [05-hybrid-orchestrator](projects/05-hybrid-orchestrator) | Local Ollama + cloud Gemini routing (Mac hybrid mode) |
+| [06-eval-harness](projects/06-eval-harness) | Scoring a pipeline against a reference set — quality, safety, and cost |
+| [07-red-team-runner](projects/07-red-team-runner) | Attacking a target with the injection corpus, and reporting where defenses leak |
+| [08-cost-dashboard](projects/08-cost-dashboard) | Instrumenting model calls once to get both spend and latency |
+| [09-agent-tool-use](projects/09-agent-tool-use) | Function calling, automatic and manually-authorized, with guard rails |
+| [10-batch-pipeline](projects/10-batch-pipeline) | Bulk processing with rate limiting, retries, and partial-failure tolerance |
 
 ## Installation
 

@@ -70,6 +70,7 @@ def _fake_client(text: str | None = "ok") -> Any:
     client.models.generate_content.return_value = MagicMock(text=text)
     return client
 
+
 # ---------------------------------------------------------------------------
 # retrieval.chunk_text
 # ---------------------------------------------------------------------------
@@ -247,9 +248,7 @@ def test_embed_text_passes_task_type_through_config() -> None:
             task_type=embeddings.TASK_TYPE_QUERY,
         )
 
-    fake_types.EmbedContentConfig.assert_called_once_with(
-        task_type=embeddings.TASK_TYPE_QUERY
-    )
+    fake_types.EmbedContentConfig.assert_called_once_with(task_type=embeddings.TASK_TYPE_QUERY)
     assert (
         fake_client.models.embed_content.call_args.kwargs["config"]
         is fake_types.EmbedContentConfig.return_value
@@ -263,7 +262,9 @@ def test_embed_text_honours_model_override() -> None:
     fake_client.models.embed_content.return_value = _embedding_response([1.0])
 
     with patch.dict("sys.modules", modules):
-        embed_text("some text", "fake-key", model="gemini-embedding-001")  # pragma: allowlist secret
+        embed_text(
+            "some text", "fake-key", model="gemini-embedding-001"
+        )  # pragma: allowlist secret
 
     assert fake_client.models.embed_content.call_args.kwargs["model"] == "gemini-embedding-001"
 
@@ -397,7 +398,10 @@ def test_answer_question_runs_full_pipeline(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(main, "build_client", lambda api_key: fake_client)
 
     result = main.answer_question(
-        "What is cosine similarity?", api_key="fake-key", corpus=corpus, top_k=1  # pragma: allowlist secret
+        "What is cosine similarity?",
+        api_key="fake-key",
+        corpus=corpus,
+        top_k=1,  # pragma: allowlist secret
     )
 
     assert result == "Cosine similarity is a metric."

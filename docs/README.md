@@ -16,6 +16,7 @@ need to understand, run, and extend the cockpit.
 | Doc | What it covers |
 |---|---|
 | [API_COMPARISON.md](API_COMPARISON.md) | Gemini vs OpenAI vs Claude — pricing shape, context windows, when to pick which |
+| [SECURITY_COVERAGE.md](SECURITY_COVERAGE.md) | Measured gaps in the injection filter — which attack families it misses, and why |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Fixes for common setup issues (missing API keys, `uv` not found, venv problems) |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Taking an example project from `projects/` to production |
 

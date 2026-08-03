@@ -192,9 +192,7 @@ def answer_question(
     def embed_query(text: str) -> list[float]:
         return embed_text(text, api_key, task_type=TASK_TYPE_QUERY)
 
-    ranked = top_k_chunks(
-        question, chunks, embed_document, k=top_k, embed_query_fn=embed_query
-    )
+    ranked = top_k_chunks(question, chunks, embed_document, k=top_k, embed_query_fn=embed_query)
     context_chunks = [chunk for chunk, _score in ranked]
 
     prompt = build_prompt(question, context_chunks)
