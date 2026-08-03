@@ -22,10 +22,15 @@ def stream_completion(prompt: str) -> Iterator[str]:
 
     A real implementation delegates to the provider's streaming API, e.g.:
 
-        import google.generativeai as genai
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        for chunk in model.generate_content(prompt, stream=True):
-            yield chunk.text
+        from google import genai
+
+        client = genai.Client(api_key=API_KEY)
+        stream = client.models.generate_content_stream(
+            model="gemini-2.5-flash", contents=prompt
+        )
+        for chunk in stream:
+            if chunk.text:  # chunk.text is None on non-text chunks
+                yield chunk.text
 
     This stub simulates streaming by yielding word-by-word.
     """
@@ -60,6 +65,11 @@ def print_stream(prompt: str) -> str:
 - **Accumulate as you go.** Callers that need the full text (for logging,
   evaluation, or storage) should build it up chunk-by-chunk rather than
   re-requesting a non-streamed call afterward.
+- **Guard against empty chunks.** With `google-genai`, a streamed chunk's
+  `.text` is `None` when the chunk carries no text part, so yielding it
+  unchecked injects `"None"` (or a `TypeError` on concatenation) into an
+  otherwise fine response. Skip falsy chunks at the provider boundary so the
+  `Iterator[str]` contract stays honest.
 - **Wrap consumption in try/except.** A dropped connection mid-stream should
   surface as a clear error (and get logged with `logger.exception` for a
   full traceback), not fail silently with a truncated response that looks

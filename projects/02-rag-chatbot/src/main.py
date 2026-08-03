@@ -17,14 +17,15 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
-from embeddings import embed_text
+from embeddings import TASK_TYPE_DOCUMENT, TASK_TYPE_QUERY, embed_text
 from retrieval import chunk_text, top_k_chunks
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-1.5-flash"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_TOP_K = 3
 DEFAULT_CORPUS_PATH = Path(__file__).resolve().parent.parent / "data" / "sample_docs.txt"
 DEFAULT_QUESTION = "What is Retrieval-Augmented Generation?"
@@ -115,29 +116,34 @@ def build_prompt(question: str, context_chunks: list[str]) -> str:
     return RAG_PROMPT_TEMPLATE.format(context=context, question=question)
 
 
-def build_client(api_key: str, model_name: str = DEFAULT_MODEL):
-    """Construct a configured Gemini GenerativeModel client.
+def build_client(api_key: str) -> Any:
+    """Construct an authenticated Gemini API client.
+
+    The ``google.genai`` import is done lazily inside this function so that
+    unit tests can stub the SDK without it ever making a network call. In
+    the ``google-genai`` SDK the model is chosen per request rather than
+    bound to the client, so no model name is taken here -- see
+    ``generate_answer``.
 
     Args:
         api_key: The Gemini API key to authenticate with.
-        model_name: Name of the Gemini model to use for generation.
 
     Returns:
-        A configured ``google.generativeai.GenerativeModel`` instance.
+        A configured ``google.genai.Client`` instance.
     """
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name)
+    return genai.Client(api_key=api_key)
 
 
-def generate_answer(client: object, prompt: str) -> str:
+def generate_answer(client: Any, prompt: str, model_name: str = DEFAULT_MODEL) -> str:
     """Send the augmented prompt to Gemini and return the text answer.
 
     Args:
-        client: A ``GenerativeModel``-like object exposing
-            ``generate_content(prompt)``.
+        client: A ``genai.Client``-like object exposing
+            ``models.generate_content(model=..., contents=...)``.
         prompt: The fully-built, context-augmented prompt.
+        model_name: Name of the Gemini model to generate with.
 
     Returns:
         The text of the model's answer.
@@ -146,8 +152,8 @@ def generate_answer(client: object, prompt: str) -> str:
         GenerationError: If the SDK call raises, or the response has no text.
     """
     try:
-        response = client.generate_content(prompt)
-    except Exception as exc:  # SDK raises assorted google.api_core errors
+        response = client.models.generate_content(model=model_name, contents=prompt)
+    except Exception as exc:  # SDK raises assorted google.genai.errors.APIError types
         raise GenerationError(f"Gemini generation call failed: {exc}") from exc
 
     text = getattr(response, "text", None)
@@ -180,10 +186,15 @@ def answer_question(
     corpus_text = corpus if corpus is not None else load_corpus()
     chunks = chunk_text(corpus_text)
 
-    def embed_fn(text: str) -> list[float]:
-        return embed_text(text, api_key)
+    def embed_document(text: str) -> list[float]:
+        return embed_text(text, api_key, task_type=TASK_TYPE_DOCUMENT)
 
-    ranked = top_k_chunks(question, chunks, embed_fn, k=top_k)
+    def embed_query(text: str) -> list[float]:
+        return embed_text(text, api_key, task_type=TASK_TYPE_QUERY)
+
+    ranked = top_k_chunks(
+        question, chunks, embed_document, k=top_k, embed_query_fn=embed_query
+    )
     context_chunks = [chunk for chunk, _score in ranked]
 
     prompt = build_prompt(question, context_chunks)

@@ -37,6 +37,8 @@ def top_k_chunks(
     chunks: list[str],
     embed_fn: EmbedFn,
     k: int = 3,
+    *,
+    embed_query_fn: EmbedFn | None = None,
 ) -> list[tuple[str, float]]:
     """Return the k chunks most relevant to the query, ranked by similarity.
 
@@ -45,8 +47,16 @@ def top_k_chunks(
         chunks: Candidate chunks to search over (e.g. from ``chunk_text``).
         embed_fn: Callable that embeds a single string into a vector. This
             is injected rather than hardcoded so tests can supply a cheap,
-            deterministic fake instead of calling a real embedding API.
+            deterministic fake instead of calling a real embedding API. Used
+            for the corpus chunks, and for the query too unless
+            ``embed_query_fn`` is given.
         k: Maximum number of chunks to return.
+        embed_query_fn: Optional separate embedder for the query. Gemini
+            embeddings are task-asymmetric — a question and the passage
+            answering it embed better under different task types — so
+            production callers pass a RETRIEVAL_QUERY embedder here and a
+            RETRIEVAL_DOCUMENT one as ``embed_fn``. Defaults to ``embed_fn``,
+            which keeps symmetric fakes in tests working unchanged.
 
     Returns:
         A list of ``(chunk, similarity_score)`` tuples, sorted by
@@ -61,7 +71,7 @@ def top_k_chunks(
     if not chunks:
         return []
 
-    query_vector = embed_fn(query)
+    query_vector = (embed_query_fn or embed_fn)(query)
     scored = [(chunk, cosine_similarity(query_vector, embed_fn(chunk))) for chunk in chunks]
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return scored[:k]

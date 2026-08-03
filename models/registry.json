@@ -1,24 +1,48 @@
 {
   "description": "Registry of models available to the AI Engineering Cockpit platform across providers. Update this file when adding or retiring a model reference used by any project.",
-  "updated": "2026-08-01",
+  "updated": "2026-08-03",
   "models": [
     {
-      "id": "gemini-1.5-flash",
+      "id": "gemini-2.5-flash",
       "provider": "gemini",
       "type": "chat",
-      "notes": "Default low-cost/fast Gemini chat model used by projects/01-hello-world."
+      "notes": "Default low-cost/fast Gemini chat model used by projects/01-hello-world. Called via the `google-genai` SDK (`from google import genai`); the retired `google-generativeai` package and the gemini-1.5-* model ids it defaulted to now return HTTP 404."
     },
     {
-      "id": "gemini-1.5-pro",
+      "id": "gemini-2.5-pro",
       "provider": "gemini",
       "type": "chat",
       "notes": "Higher-capability Gemini tier for larger context or more complex reasoning."
     },
     {
-      "id": "text-embedding-004",
+      "id": "gemini-2.0-flash",
+      "provider": "gemini",
+      "type": "chat",
+      "notes": "DEPRECATED. Google's pricing page lists a shutdown date of 2026-06-01; it still appears in ListModels as of 2026-08-03 but must not be used for new work. Use gemini-2.5-flash."
+    },
+    {
+      "id": "gemini-flash-latest",
+      "provider": "gemini",
+      "type": "chat",
+      "notes": "Rolling alias that tracks the current fast Gemini tier. Convenient for demos; pin an explicit dated/numbered id before production use so behaviour doesn't shift underneath you."
+    },
+    {
+      "id": "gemini-pro-latest",
+      "provider": "gemini",
+      "type": "chat",
+      "notes": "Rolling alias that tracks the current high-capability Gemini tier. Same pinning caveat as gemini-flash-latest."
+    },
+    {
+      "id": "gemini-embedding-001",
       "provider": "gemini",
       "type": "embedding",
-      "notes": "Gemini embedding model, candidate for projects/02-rag-chatbot retrieval."
+      "notes": "Gemini embedding model used by projects/02-rag-chatbot retrieval; returns 3072-dimensional vectors. Replaces the retired text-embedding-004. Call via client.models.embed_content(...).embeddings[0].values."
+    },
+    {
+      "id": "gemini-embedding-2",
+      "provider": "gemini",
+      "type": "embedding",
+      "notes": "Newer Gemini embedding model, available alongside gemini-embedding-001. Confirm its output dimension against the API before swapping — re-embed your whole corpus when changing embedding models, since vectors from different models are not comparable."
     },
     {
       "id": "gpt-4o-mini",

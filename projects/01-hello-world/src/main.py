@@ -15,12 +15,13 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import Any
 
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-1.5-flash"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_PROMPT = "In one sentence, explain what makes the Gemini API useful for developers."
 
 
@@ -73,33 +74,36 @@ def get_api_key(env: dict[str, str] | None = None) -> str:
     return api_key
 
 
-def build_client(api_key: str, model_name: str = DEFAULT_MODEL):
-    """Construct a configured Gemini GenerativeModel client.
+def build_client(api_key: str) -> Any:
+    """Construct an authenticated Gemini API client.
 
-    The ``google.generativeai`` import is done lazily inside this function
-    so that unit tests can mock this function directly without requiring
-    the real SDK to make network calls.
+    The ``google.genai`` import is done lazily inside this function so that
+    unit tests can mock this function (or the module) directly without
+    requiring the real SDK to make network calls.
+
+    Note that in the ``google-genai`` SDK the model is not bound to the
+    client -- it is passed per request -- so this takes no model name. See
+    ``ask_gemini`` for where the model is selected.
 
     Args:
         api_key: The Gemini API key to authenticate with.
-        model_name: Name of the Gemini model to use.
 
     Returns:
-        A configured ``google.generativeai.GenerativeModel`` instance.
+        A configured ``google.genai.Client`` instance.
     """
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name)
+    return genai.Client(api_key=api_key)
 
 
-def ask_gemini(client: object, prompt: str) -> str:
+def ask_gemini(client: Any, prompt: str, model_name: str = DEFAULT_MODEL) -> str:
     """Send a single prompt to Gemini and return the text response.
 
     Args:
-        client: A ``GenerativeModel``-like object exposing
-            ``generate_content(prompt)``.
+        client: A ``genai.Client``-like object exposing
+            ``models.generate_content(model=..., contents=...)``.
         prompt: The prompt text to send.
+        model_name: Name of the Gemini model to generate with.
 
     Returns:
         The text of the model's response.
@@ -109,8 +113,8 @@ def ask_gemini(client: object, prompt: str) -> str:
             response contains no usable text.
     """
     try:
-        response = client.generate_content(prompt)
-    except Exception as exc:  # SDK raises assorted google.api_core errors
+        response = client.models.generate_content(model=model_name, contents=prompt)
+    except Exception as exc:  # SDK raises assorted google.genai.errors.APIError types
         raise GeminiRequestError(f"Gemini API call failed: {exc}") from exc
 
     text = getattr(response, "text", None)

@@ -5,14 +5,19 @@ environment, send one prompt, print the response. This is the "does my key
 work and is the SDK wired up correctly" sanity check before building
 anything more complex.
 
+Uses the current `google-genai` SDK and the `gemini-2.5-flash` model. (The
+older `google-generativeai` package is end-of-life, and the `gemini-1.5-*`
+model ids it was usually paired with now return HTTP 404.)
+
 ## What this demonstrates
 
 - Loading a secret (`GEMINI_API_KEY`) from a `.env` file via `python-dotenv`
   instead of hardcoding it.
-- Configuring the `google-generativeai` SDK and constructing a
-  `GenerativeModel`.
-- Sending a single prompt with `generate_content()` and reading `.text`
-  off the response.
+- Constructing an authenticated client with the current `google-genai`
+  SDK (`genai.Client(api_key=...)`).
+- Sending a single prompt with
+  `client.models.generate_content(model=..., contents=...)` and reading
+  `.text` off the response.
 - Basic, explicit error handling: a clear message when the key is missing,
   and a wrapped error when the API call itself fails.
 - Logging via the stdlib `logging` module (no `print()`) so output is
@@ -22,7 +27,7 @@ anything more complex.
 
 ```
 01-hello-world/
-├── pyproject.toml      # isolated deps: google-generativeai, python-dotenv, pytest
+├── pyproject.toml      # isolated deps: google-genai, python-dotenv, pytest
 ├── .python-version      # 3.11
 ├── src/main.py           # the example
 ├── tests/test_main.py    # mocked-SDK tests, no network/API key needed

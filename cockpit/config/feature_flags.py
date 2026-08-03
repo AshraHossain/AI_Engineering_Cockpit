@@ -10,10 +10,10 @@ from __future__ import annotations
 
 FRAMEWORKS_ENABLED: dict[str, bool] = {
     "testing": True,
-    "evaluation": False,  # Tier 2
-    "red_teaming": False,  # Tier 2
+    "evaluation": True,
+    "red_teaming": True,
     "security": True,
-    "monitoring": False,  # Tier 2
+    "monitoring": True,
     "governance": False,  # Tier 3
 }
 

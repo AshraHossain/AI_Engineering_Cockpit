@@ -30,21 +30,34 @@ retry or post-process the whole response until it's fully assembled.
 
 ## How it works
 
+This project uses the current **`google-genai`** SDK. The legacy
+`google-generativeai` package (`genai.configure()` + a per-model
+`GenerativeModel` with `generate_content(..., stream=True)`) is
+end-of-life and is not used. Default model: `gemini-2.5-flash` — the
+`gemini-1.5-*` ids have been retired and now return HTTP 404.
+
 `src/main.py` is split into small, composable pieces:
 
-- `build_model()` — constructs the real Gemini SDK model (only touched at
-  runtime).
-- `start_stream(model, prompt)` — calls `model.generate_content(prompt,
-  stream=True)` and returns the raw iterator of SDK chunk objects.
-- `iter_chunks(chunks)` — normalizes SDK chunks (each with a `.text`
-  attribute) into plain strings, skipping empty ones.
+- `build_client()` — constructs the real `genai.Client` (only touched at
+  runtime). The model id is *not* bound here; it travels per request.
+- `resolve_model_name(model_name)` — picks the model id from the
+  argument, then `GEMINI_MODEL`, then the in-code default.
+- `start_stream(client, prompt, model_name)` — calls
+  `client.models.generate_content_stream(model=..., contents=prompt)` and
+  returns the raw iterator of SDK chunk objects.
+- `iter_chunks(chunks)` — normalizes SDK chunks into plain strings,
+  skipping empty ones. **A chunk's `.text` can legitimately be `None`**
+  (the SDK emits metadata-only chunks), so this filter is load-bearing:
+  without it, assembling the response would fail on a `None`.
 - `consume_stream(chunks, on_chunk)` — drains the text stream, forwarding
   each chunk to a callback (e.g. printing it immediately) and returning
   the fully assembled response for logging.
 
 This separation is what makes the module testable without a real network
-stream: tests hand `iter_chunks`/`consume_stream` a plain Python iterator
-of mock chunks and assert on the assembled output.
+stream: tests hand `start_stream` a mock client whose
+`.models.generate_content_stream(...)` returns a plain Python iterator of
+mock chunks — including a `text=None` chunk — and assert on the assembled
+output.
 
 ## Usage
 

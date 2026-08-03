@@ -56,11 +56,36 @@ def answer(query: str, documents: list[str]) -> str:
     logger.info("Built RAG prompt with %d context chunks", len(chunks))
 
     # Swap this for a real client, e.g.:
-    #   import google.generativeai as genai
-    #   model = genai.GenerativeModel("gemini-1.5-flash")
-    #   return model.generate_content(prompt).text
+    #   from google import genai
+    #   client = genai.Client(api_key=API_KEY)
+    #   resp = client.models.generate_content(
+    #       model="gemini-2.5-flash", contents=prompt
+    #   )
+    #   return resp.text
     return prompt  # placeholder: return the assembled prompt itself
 ```
+
+## Embedding the query and documents
+
+The retrieval stub above uses keyword overlap. The real version embeds both
+sides and ranks by cosine similarity:
+
+```python
+from google import genai
+
+client = genai.Client(api_key=API_KEY)
+
+EMBEDDING_MODEL = "gemini-embedding-001"  # 3072-dimensional vectors
+
+
+def embed(text: str) -> list[float]:
+    """Return the embedding vector for a single piece of text."""
+    result = client.models.embed_content(model=EMBEDDING_MODEL, contents=text)
+    return result.embeddings[0].values
+```
+
+Embeddings from different models are not comparable — if you switch embedding
+models, re-embed the entire corpus rather than mixing vectors.
 
 ## Why this shape
 

@@ -1,11 +1,22 @@
 """Stream a Gemini response chunk-by-chunk instead of waiting for the full completion.
 
+Uses the current ``google-genai`` SDK: one ``genai.Client`` is built
+once, and streaming happens through
+``client.models.generate_content_stream(model=..., contents=...)``. The
+legacy ``google-generativeai`` package (``genai.configure()`` plus a
+per-model ``GenerativeModel`` with ``generate_content(..., stream=True)``)
+is end-of-life and no longer used.
+
 Split into small, independently testable pieces:
 
-- :func:`build_model` constructs the real SDK model (only called at
+- :func:`build_client` constructs the real SDK client (only called at
   runtime, never during tests).
+- :func:`resolve_model_name` picks the model id from an argument, the
+  environment, or the in-code default.
+- :func:`start_stream` opens the streaming call and returns the raw
+  iterator of SDK chunk objects.
 - :func:`iter_chunks` normalizes a stream of SDK chunk objects (each
-  exposing ``.text``) into plain strings.
+  exposing ``.text``, which may be ``None``) into plain strings.
 - :func:`consume_stream` drains an iterable of text chunks, forwarding
   each to a sink callback and returning the fully assembled response.
 """
@@ -23,7 +34,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 class StreamingError(RuntimeError):
@@ -31,9 +42,13 @@ class StreamingError(RuntimeError):
 
 
 class TextChunk(Protocol):
-    """Structural type for one chunk of a streaming SDK response."""
+    """Structural type for one chunk of a streaming SDK response.
 
-    text: str
+    ``text`` is optional in practice: the SDK emits chunks carrying only
+    metadata (no text payload), so consumers must tolerate ``None``.
+    """
+
+    text: str | None
 
 
 def configure_logging(level: str | None = None) -> None:
@@ -51,19 +66,31 @@ def configure_logging(level: str | None = None) -> None:
     )
 
 
-def build_model(api_key: str | None = None, model_name: str | None = None) -> Any:
-    """Construct a real ``google.generativeai`` model for streaming.
+def resolve_model_name(model_name: str | None = None) -> str:
+    """Resolve which Gemini model id to stream from.
+
+    Args:
+        model_name: Explicit model id. Falls back to the ``GEMINI_MODEL``
+            environment variable, then :data:`DEFAULT_GEMINI_MODEL`.
+
+    Returns:
+        The model id to pass to the SDK.
+    """
+    return model_name or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+
+
+def build_client(api_key: str | None = None) -> Any:
+    """Construct a real ``google.genai`` client for streaming.
 
     Imported lazily so the SDK is only required at runtime, not at
     test-collection time.
 
     Args:
         api_key: Gemini API key. Falls back to ``GEMINI_API_KEY``.
-        model_name: Model id. Falls back to ``GEMINI_MODEL``, then
-            :data:`DEFAULT_GEMINI_MODEL`.
 
     Returns:
-        A configured ``genai.GenerativeModel`` instance.
+        A configured ``google.genai.Client`` instance. The model id is
+        not bound here — it is passed per request in :func:`start_stream`.
 
     Raises:
         StreamingError: If no API key is available.
@@ -72,22 +99,25 @@ def build_model(api_key: str | None = None, model_name: str | None = None) -> An
     if not resolved_key:
         raise StreamingError("GEMINI_API_KEY is not set.")
 
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=resolved_key)
-    return genai.GenerativeModel(model_name or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL))
+    return genai.Client(api_key=resolved_key)
 
 
-def start_stream(model: Any, prompt: str) -> Iterable[TextChunk]:
-    """Start a streaming generation call against ``model``.
+def start_stream(client: Any, prompt: str, model_name: str | None = None) -> Iterable[TextChunk]:
+    """Start a streaming generation call against ``client``.
 
     Args:
-        model: An object exposing ``generate_content(prompt, stream=True)``,
-            e.g. a ``genai.GenerativeModel`` or a test double.
+        client: An object exposing
+            ``models.generate_content_stream(model=..., contents=...)``,
+            e.g. a ``genai.Client`` or a test double.
         prompt: The prompt to send.
+        model_name: Model id to stream from. Resolved via
+            :func:`resolve_model_name` when omitted.
 
     Returns:
-        An iterable of chunk objects, each exposing a ``.text`` attribute.
+        An iterable of chunk objects, each exposing a ``.text``
+        attribute that may be ``None``.
 
     Raises:
         StreamingError: If the prompt is empty or the SDK call fails to
@@ -97,7 +127,10 @@ def start_stream(model: Any, prompt: str) -> Iterable[TextChunk]:
         raise StreamingError("Prompt must be a non-empty string.")
 
     try:
-        return model.generate_content(prompt, stream=True)
+        return client.models.generate_content_stream(
+            model=resolve_model_name(model_name),
+            contents=prompt,
+        )
     except Exception as exc:
         logger.error("Failed to start Gemini stream: %s", exc)
         raise StreamingError(f"Failed to start stream: {exc}") from exc
@@ -106,9 +139,13 @@ def start_stream(model: Any, prompt: str) -> Iterable[TextChunk]:
 def iter_chunks(chunks: Iterable[TextChunk]) -> Iterator[str]:
     """Yield the ``.text`` of each chunk, skipping chunks with no text.
 
+    The SDK genuinely emits chunks whose ``.text`` is ``None`` (metadata-
+    only chunks), so this filter is load-bearing, not defensive padding:
+    without it the assembled response would raise on concatenation.
+
     Args:
         chunks: An iterable of SDK chunk objects (or mocks) each exposing
-            a ``.text`` attribute.
+            a ``.text`` attribute, which may be ``None`` or empty.
 
     Yields:
         Non-empty text fragments in arrival order.
@@ -164,10 +201,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     try:
-        model = build_model()
-        chunks = start_stream(model, args.prompt)
+        client = build_client()
+        chunks = start_stream(client, args.prompt)
         full_text = consume_stream(iter_chunks(chunks), on_chunk=_print_chunk)
-        print()  # trailing newline after the streamed output
+        # Trailing newline after the streamed output. flush=True matters: when
+        # stdout is piped it is block-buffered, while the logger writes to
+        # unbuffered stderr -- without the flush the final chunk and the next
+        # log line collide on one garbled line.
+        print(flush=True)
     except StreamingError as exc:
         logger.error("Streaming failed: %s", exc)
         return 1

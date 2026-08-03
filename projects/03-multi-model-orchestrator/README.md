@@ -27,6 +27,13 @@ client code itself.
   around each vendor's SDK. Both expose the same interface:
   `generate(prompt: str) -> str`. This is what makes them interchangeable
   to the orchestrator.
+- Gemini goes through the current **`google-genai`** SDK: one
+  `genai.Client` is built at construction time, and the model id is
+  passed per request via
+  `client.models.generate_content(model=..., contents=...)`. The legacy
+  `google-generativeai` package (`genai.configure()` + `GenerativeModel`)
+  is end-of-life and is not used here. Default model: `gemini-2.5-flash`
+  — the `gemini-1.5-*` ids have been retired and now return HTTP 404.
 - `src/orchestrator.py` takes a dict of `{name: client}`, runs `.generate()`
   on each one, and records latency and success/failure independently — one
   provider failing doesn't stop the others.

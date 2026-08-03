@@ -7,7 +7,7 @@ questions about documents it has never seen before, and it reduces the
 chance of the model inventing facts that are not grounded in any source.
 
 The Gemini API is Google's family of large language models, accessible
-through the google-generativeai Python SDK. It supports text generation,
+through the google-genai Python SDK. It supports text generation,
 multi-turn chat, and an embeddings endpoint that converts text into a
 numeric vector representing its meaning. Two pieces of text that mean
 similar things end up with vectors that point in similar directions, which

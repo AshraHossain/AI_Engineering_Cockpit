@@ -21,6 +21,16 @@ This means the exact same `HybridRouter` runs unmodified on both
 platforms; behavior differs only because of what's actually reachable at
 `OLLAMA_HOST`.
 
+## Cloud backend SDK
+
+`src/cloud_gemini.py` uses the current **`google-genai`** SDK: one
+`genai.Client` is built at construction time, and the model id is passed
+per request via `client.models.generate_content(model=..., contents=...)`.
+The legacy `google-generativeai` package (`genai.configure()` +
+`GenerativeModel`) is end-of-life and is not used. Default model:
+`gemini-2.5-flash` — the `gemini-1.5-*` ids have been retired and now
+return HTTP 404.
+
 ## How routing decides
 
 `src/hybrid_router.py` implements this policy, in order:

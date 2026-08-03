@@ -31,13 +31,20 @@ corpus ────┘                                                    │
 ## Design choices / tradeoffs
 
 - **Embeddings**: this demo calls the real Gemini embeddings endpoint
-  (`models/text-embedding-004` via `google-generativeai`) rather than
+  (`gemini-embedding-001` via the current `google-genai` SDK) rather than
   hand-rolling a local embedding (e.g. TF-IDF with `difflib`). That keeps
   retrieval quality realistic -- it actually captures meaning, not just
-  word overlap. The cost is that generating embeddings needs network
-  access and an API key at runtime. `src/embeddings.py` isolates every SDK
-  call behind small functions so this is still fully unit-testable offline
-  (see Testing below).
+  word overlap. Each vector is 3072-dimensional. The cost is that
+  generating embeddings needs network access and an API key at runtime.
+  `src/embeddings.py` isolates every SDK call behind small functions so
+  this is still fully unit-testable offline (see Testing below).
+- **SDK / models**: generation uses `gemini-2.5-flash` through
+  `client.models.generate_content(model=..., contents=...)`. The retired
+  `google-generativeai` package (and the `gemini-1.5-*` /
+  `text-embedding-004` model ids, which now return HTTP 404) are no longer
+  used. Note the `google-genai` client is not bound to a model -- the
+  model is chosen per request -- so `build_client()` takes only the API
+  key and `generate_answer()`/`embed_text()` take the model name.
 - **Chunking**: paragraphs (blank-line-separated) are used as chunks. This
   is the simplest strategy that keeps each chunk topically coherent for a
   small demo corpus; it is not appropriate for very long or unstructured
@@ -53,7 +60,7 @@ corpus ────┘                                                    │
 
 ```
 02-rag-chatbot/
-├── pyproject.toml        # isolated deps: google-generativeai, python-dotenv, pytest
+├── pyproject.toml        # isolated deps: google-genai, python-dotenv, pytest
 ├── .python-version         # 3.11
 ├── src/
 │   ├── main.py              # ties embeddings + retrieval together, CLI entry point
@@ -94,7 +101,7 @@ No API key or network access is required. `tests/test_rag.py` covers:
 - `cosine_similarity` (identical / orthogonal / opposite / zero vectors)
 - `top_k_chunks` ranking, using a small fake `embed_fn` instead of a real API call
 - `embeddings.embed_text` and `main.generate_answer`, with the
-  `google.generativeai` SDK stubbed via `unittest.mock`
+  `google.genai` SDK stubbed via `unittest.mock`
 - `main.build_prompt` and the end-to-end `answer_question` pipeline, with
   every SDK boundary mocked or injected
 

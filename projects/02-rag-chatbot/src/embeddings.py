@@ -1,9 +1,9 @@
 """Text embedding generation for the RAG demo.
 
 Design tradeoff (documented here and in the project README): this module
-calls the real Gemini embeddings endpoint (``models/text-embedding-004``)
-rather than implementing a from-scratch local embedding (e.g. TF-IDF). That
-keeps the demo genuinely representative of how RAG works in production --
+calls the real Gemini embeddings endpoint (``gemini-embedding-001``) rather
+than implementing a from-scratch local embedding (e.g. TF-IDF). That keeps
+the demo genuinely representative of how RAG works in production --
 retrieval quality depends on real semantic vectors, not just word overlap.
 The cost is that ``embed_text``/``embed_texts`` need network access and an
 API key at runtime. To keep this testable offline, every function that
@@ -15,32 +15,59 @@ directly.
 from __future__ import annotations
 
 import math
+from typing import Any
 
-EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIMENSIONS = 3072
+
+# Gemini embeddings are task-asymmetric: a question and the passage that
+# answers it are *not* the same kind of text, and telling the model which is
+# which measurably improves retrieval. Verified live against the API on
+# 2026-08-03 -- the same string embedded under these two task types returns
+# different vectors.
+TASK_TYPE_QUERY = "RETRIEVAL_QUERY"
+TASK_TYPE_DOCUMENT = "RETRIEVAL_DOCUMENT"
 
 
 class EmbeddingError(RuntimeError):
     """Raised when generating an embedding fails or returns no vector."""
 
 
+def build_client(api_key: str) -> Any:
+    """Construct an authenticated Gemini API client for embedding calls.
+
+    The ``google.genai`` import happens lazily inside this function so tests
+    can stub the SDK out via ``sys.modules`` without the real package ever
+    making a network call.
+
+    Args:
+        api_key: Gemini API key to authenticate with.
+
+    Returns:
+        A configured ``google.genai.Client`` instance.
+    """
+    from google import genai
+
+    return genai.Client(api_key=api_key)
+
+
 def embed_text(
     text: str,
     api_key: str,
     model: str = EMBEDDING_MODEL,
-    task_type: str = "retrieval_document",
+    task_type: str | None = None,
 ) -> list[float]:
     """Embed a single piece of text using the Gemini embeddings endpoint.
-
-    The ``google.generativeai`` import happens lazily inside this function
-    so tests can stub the module out via ``sys.modules`` without requiring
-    the real SDK to make a network call.
 
     Args:
         text: The text to embed.
         api_key: Gemini API key to authenticate with.
-        model: Embedding model name.
-        task_type: Gemini embedding task type, e.g. "retrieval_document"
-            for corpus chunks or "retrieval_query" for the user's question.
+        model: Embedding model name. Defaults to ``gemini-embedding-001``,
+            which returns ``EMBEDDING_DIMENSIONS``-length vectors.
+        task_type: Optional retrieval role for this text — use
+            :data:`TASK_TYPE_QUERY` when embedding a user's question and
+            :data:`TASK_TYPE_DOCUMENT` when embedding corpus passages. ``None``
+            leaves the model at its default (symmetric) behavior.
 
     Returns:
         The embedding as a list of floats.
@@ -48,25 +75,33 @@ def embed_text(
     Raises:
         EmbeddingError: If the SDK call fails or returns no embedding.
     """
-    import google.generativeai as genai
-
-    genai.configure(api_key=api_key)
+    client = build_client(api_key)
     try:
-        result = genai.embed_content(model=model, content=text, task_type=task_type)
-    except Exception as exc:  # SDK raises assorted google.api_core errors
+        if task_type is None:
+            result = client.models.embed_content(model=model, contents=text)
+        else:
+            from google.genai import types
+
+            result = client.models.embed_content(
+                model=model,
+                contents=text,
+                config=types.EmbedContentConfig(task_type=task_type),
+            )
+    except Exception as exc:  # SDK raises assorted google.genai.errors.APIError types
         raise EmbeddingError(f"Embedding request failed: {exc}") from exc
 
-    embedding = result.get("embedding") if isinstance(result, dict) else None
-    if not embedding:
+    embeddings = getattr(result, "embeddings", None)
+    values = getattr(embeddings[0], "values", None) if embeddings else None
+    if not values:
         raise EmbeddingError("Embedding response contained no vector.")
-    return list(embedding)
+    return list(values)
 
 
 def embed_texts(
     texts: list[str],
     api_key: str,
     model: str = EMBEDDING_MODEL,
-    task_type: str = "retrieval_document",
+    task_type: str | None = None,
 ) -> list[list[float]]:
     """Embed multiple texts, one Gemini call per text.
 
@@ -74,7 +109,9 @@ def embed_texts(
         texts: Texts to embed.
         api_key: Gemini API key to authenticate with.
         model: Embedding model name.
-        task_type: Gemini embedding task type.
+        task_type: Optional retrieval role applied to every text — see
+            :func:`embed_text`. Corpus passages should use
+            :data:`TASK_TYPE_DOCUMENT`.
 
     Returns:
         A list of embedding vectors, in the same order as ``texts``.

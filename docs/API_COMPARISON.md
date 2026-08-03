@@ -59,6 +59,20 @@ provider on reputation alone.
   all three via `projects/03-multi-model-orchestrator` and compare outputs,
   latency, and cost directly for your actual workload.
 
+## SDK packages
+
+| Provider | Package | Entry point |
+|---|---|---|
+| **Google Gemini** | `google-genai` | `from google import genai` → `genai.Client(api_key=...)` → `client.models.generate_content(model=..., contents=...)` |
+| **OpenAI** | `openai` | `OpenAI(api_key=...)` → `client.chat.completions.create(model=..., messages=[...])` |
+| **Anthropic Claude** | `anthropic` | `Anthropic(api_key=...)` → `client.messages.create(model=..., messages=[...])` |
+
+Note for Gemini: the older `google-generativeai` package (`import
+google.generativeai as genai`, `genai.GenerativeModel(...)`) has reached end of
+life and is **not** what this repo targets — use `google-genai` and its
+client-based API. The Gemini model ids that SDK generation defaulted to are
+gone too; see `models/registry.json` for the ids that are currently served.
+
 ## In this repo
 
 - `cockpit/config/settings.py` reads `GEMINI_API_KEY`, `OPENAI_API_KEY`, and
