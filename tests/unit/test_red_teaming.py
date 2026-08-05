@@ -207,11 +207,30 @@ class TestOffenseDefenseSplit:
         results = scan_corpus_against_defense()
         assert results["io-001-ignore-previous"].is_suspicious is True
 
-    def test_obfuscated_payloads_evade_the_defensive_scanner(self) -> None:
-        """The gap this harness exists to surface: encoded attacks slip past regexes."""
-        evaders = payloads_evading_defense()
-        assert "eo-001-base64" in evaders
-        assert "eo-003-letter-spacing" in evaders
+    def test_obfuscated_payloads_are_caught_after_deobfuscation(self) -> None:
+        """Regression guard for the filter's normalize/decode layers.
+
+        These two evaded the original literal-text regexes. They are caught
+        now only because ``scan_for_prompt_injection`` folds obfuscation and
+        decodes encoded text before matching -- if either layer regresses,
+        this fails.
+        """
+        evaders = set(payloads_evading_defense())
+        assert "eo-001-base64" not in evaders
+        assert "eo-003-letter-spacing" not in evaders
+
+    def test_harness_still_surfaces_a_real_residual_gap(self) -> None:
+        """A per-message filter structurally cannot see split payloads.
+
+        Asserted so the harness stays honest: if this ever passes trivially
+        because the gap report broke, we want to know.
+        """
+        evaders = set(payloads_evading_defense())
+        assert evaders, "the harness should still be reporting a residual gap"
+        assert any(payload_id.startswith("ps-") for payload_id in evaders), (
+            "payload-splitting attacks are the documented structural limit "
+            "-- if these are now caught, update docs/SECURITY_COVERAGE.md"
+        )
 
     def test_some_payloads_are_caught_so_the_scan_is_meaningful(self) -> None:
         evaders = set(payloads_evading_defense())

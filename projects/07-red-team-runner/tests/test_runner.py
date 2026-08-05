@@ -24,7 +24,6 @@ from cockpit.red_teaming.prompt_injection import (
 
 import main
 import report as report_module
-from report import GAP_ALERT_THRESHOLD
 from runner import analyze_defense_coverage, build_canary_target_prompt, run_red_team
 from target import (
     BENIGN_ANSWER,
@@ -256,25 +255,49 @@ def test_full_edge_case_suite_runs_against_a_tolerant_target() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_defense_coverage_finds_a_real_gap() -> None:
-    """The request-time filter genuinely misses much of the corpus."""
+def test_defense_coverage_accounts_for_every_payload() -> None:
+    """The coverage arithmetic must hold, whatever the filter's quality.
+
+    Deliberately pins no detection rate: this asserts the harness measures
+    correctly, not that the filter is any particular quality. The current
+    numbers live in docs/SECURITY_COVERAGE.md, which is regenerated from a
+    real run rather than hand-maintained.
+    """
     coverage = analyze_defense_coverage()
 
     assert coverage.total == len(INJECTION_CORPUS)
     assert coverage.detected + coverage.evaded == coverage.total
-    assert coverage.evaded > 0
-    assert coverage.detection_rate < GAP_ALERT_THRESHOLD
     assert coverage.detection_rate + coverage.evasion_rate == pytest.approx(1.0)
 
 
-def test_encoding_obfuscation_is_a_blind_spot() -> None:
-    """Obfuscated payloads are precisely what a regex filter cannot see."""
+def test_residual_gap_is_still_reported() -> None:
+    """The filter is not perfect, and the harness must keep saying so."""
+    coverage = analyze_defense_coverage()
+    assert coverage.evaded > 0, (
+        "either the filter became perfect (update this test and the docs) "
+        "or the gap analysis broke"
+    )
+
+
+def test_encoding_obfuscation_is_no_longer_a_blind_spot() -> None:
+    """Regression guard for the filter's normalize + decode layers.
+
+    Encoding obfuscation was 0/4 against the original literal-text regexes.
+    It is caught now only because the scan folds obfuscation and decodes
+    encoded text before matching -- if either layer regresses, this fails.
+    """
     coverage = analyze_defense_coverage()
     by_category = {entry.category: entry for entry in coverage.by_category}
 
     encoding = by_category[AttackCategory.ENCODING_OBFUSCATION]
-    assert encoding.detected == 0
-    assert AttackCategory.ENCODING_OBFUSCATION in coverage.blind_categories
+    assert encoding.detected == encoding.total
+    assert AttackCategory.ENCODING_OBFUSCATION not in coverage.blind_categories
+
+
+def test_payload_splitting_remains_the_structural_blind_spot() -> None:
+    """A per-message filter cannot see an instruction assembled across turns."""
+    coverage = analyze_defense_coverage()
+    assert AttackCategory.PAYLOAD_SPLITTING in coverage.blind_categories
 
 
 def test_defense_coverage_ranks_worst_categories_first() -> None:

@@ -40,8 +40,14 @@ full walkthrough and troubleshooting.
   validation to cut credit-card false positives) — not a TODO.
 - **The red-team harness grades your own defenses.** It runs its 32-payload
   corpus through the injection detector and reports which attacks slip past,
-  so the security module's blind spots are measured rather than assumed.
-  (Today: 12/32 caught — see [docs/SECURITY_COVERAGE.md](docs/SECURITY_COVERAGE.md).)
+  so the security module's blind spots are measured rather than assumed. It
+  found the first version of that filter catching only 12/32; the filter now
+  catches 24/32, and the residual gap is documented rather than hidden — see
+  [docs/SECURITY_COVERAGE.md](docs/SECURITY_COVERAGE.md).
+- **Injection detection sees through obfuscation.** The scan matches against
+  the raw input, a Unicode-normalized form (zero-width characters,
+  letter-spacing, accented homoglyphs), and base64/hex/rot13 decodings —
+  because an encoded instruction is still an instruction to the model.
 - **Every framework is feature-flagged.** `cockpit/config/feature_flags.py`
   gates testing/evaluation/red-teaming/security/monitoring/governance
   independently, with pre-built profiles for startup, enterprise, research,
