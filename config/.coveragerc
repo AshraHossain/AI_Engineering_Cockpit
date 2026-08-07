@@ -1,23 +1,13 @@
-; Coverage scope for the Tier 1 80% gate (see config/pytest.ini's --cov-fail-under).
+; Coverage scope for the 80% gate (see config/pytest.ini's --cov-fail-under).
 ;
-; Tier 2 (evaluation, red_teaming, monitoring) is now implemented and tested,
-; so it counts against the gate like any other real code.
+; All three tiers are now implemented and tested, so every framework counts
+; against the gate like any other real code. Nothing is omitted for being
+; "not written yet" any more.
 ;
-; What remains omitted is still unimplemented skeleton: the governance package
-; and the Tier 3 security modules (data_security, access_control,
-; audit_logging, compliance, threat_detection), where every function raises
-; NotImplementedError. Counting those would either force throwaway
-; NotImplementedError-assertion tests with no real signal, or force lowering
-; the gate for code that has no logic to test yet.
-;
-; cockpit/testing/* is itself testing infrastructure/example code (fixtures,
-; demo unit/integration/benchmark tests), not application logic -- also omitted.
+; The one remaining omission is cockpit/testing/*, which is testing
+; infrastructure and example code (fixtures, demo unit/integration/benchmark
+; modules) rather than application logic -- pytest actually collects and runs
+; those demo modules as tests, so measuring their coverage would be circular.
 [run]
 omit =
-    cockpit/governance/*
-    cockpit/security/data_security.py
-    cockpit/security/access_control.py
-    cockpit/security/audit_logging.py
-    cockpit/security/compliance.py
-    cockpit/security/threat_detection.py
     cockpit/testing/*

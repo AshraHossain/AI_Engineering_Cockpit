@@ -5,9 +5,9 @@ evaluating, red-teaming, securing, monitoring, and governing AI systems —
 plus a set of runnable example projects that show how the pieces fit
 together in practice.
 
-**Tier 2 is complete.** Testing, security, evaluation, red-teaming, and
-monitoring all ship with real, working logic and are enabled by default.
-Governance remains a typed skeleton behind a feature flag, pending Tier 3.
+**All three tiers are complete.** Every framework — testing, security,
+evaluation, red-teaming, monitoring, and governance — ships with real,
+working logic and is enabled by default. Nothing here is a placeholder.
 
 ## Quick start (5 minutes)
 

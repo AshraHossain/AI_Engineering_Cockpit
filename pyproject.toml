@@ -14,6 +14,11 @@ dependencies = [
     "anthropic>=0.34",
     "requests>=2.32",
     "python-dotenv>=1.0",
+    # The one place stdlib-only is the wrong call. Python ships secure
+    # password hashing (hashlib.scrypt) and HMAC, but no authenticated
+    # symmetric encryption -- and hand-rolling AEAD inside a module called
+    # data_security.py would be worse than having no encryption at all.
+    "cryptography>=43.0",
 ]
 
 [dependency-groups]

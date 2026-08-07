@@ -23,9 +23,13 @@ class TestFeatureFlags:
         """Tier 1 ships the testing framework enabled."""
         assert is_enabled("testing") is True
 
-    def test_governance_disabled_by_default(self) -> None:
-        """Governance is Tier 3 scope and off by default in Tier 1."""
-        assert is_enabled("governance") is False
+    def test_every_framework_is_enabled(self) -> None:
+        """All three tiers are implemented, so nothing ships switched off.
+
+        Was previously asserting governance is disabled -- that pinned a
+        Tier 1 state of the world, not an intended property.
+        """
+        assert all(FRAMEWORKS_ENABLED.values())
 
     def test_unknown_framework_raises_key_error(self) -> None:
         """Looking up an unregistered framework name is a programming error, not a silent False."""

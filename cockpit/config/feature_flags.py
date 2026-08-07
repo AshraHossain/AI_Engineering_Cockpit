@@ -14,7 +14,7 @@ FRAMEWORKS_ENABLED: dict[str, bool] = {
     "red_teaming": True,
     "security": True,
     "monitoring": True,
-    "governance": False,  # Tier 3
+    "governance": True,
 }
 
 
