@@ -42,7 +42,13 @@ from cockpit.security.data_security import (
     verify_password,
 )
 
-PLAINTEXT_PASSWORD = "correct horse battery staple"
+PLAINTEXT_PASSWORD = "correct horse battery staple"  # pragma: allowlist secret
+
+# Credential-shaped markers used to prove the classifier spots them. None is a
+# real credential: the RSA line is a PEM header with no key material, and the
+# AWS id is the example value from Amazon's own documentation.
+RSA_PRIVATE_KEY_MARKER = "-----BEGIN RSA PRIVATE KEY-----"  # pragma: allowlist secret
+AWS_EXAMPLE_KEY_ID = "AKIAIOSFODNN7EXAMPLE"  # pragma: allowlist secret
 
 
 class TestPasswordHashing:
@@ -424,9 +430,9 @@ class TestDataClassification:
         [
             ("SSN on file: 123-45-6789", DataClassification.RESTRICTED),
             ("Card 4111111111111111 charged", DataClassification.RESTRICTED),
-            ("-----BEGIN RSA PRIVATE KEY-----", DataClassification.RESTRICTED),
+            (RSA_PRIVATE_KEY_MARKER, DataClassification.RESTRICTED),
             ("api_key = abcdef123456", DataClassification.RESTRICTED),
-            ("AKIAIOSFODNN7EXAMPLE", DataClassification.RESTRICTED),
+            (AWS_EXAMPLE_KEY_ID, DataClassification.RESTRICTED),
             ("mail me at jane.doe@example.com", DataClassification.CONFIDENTIAL),
             ("server at 192.168.1.10", DataClassification.CONFIDENTIAL),
             ("The quick brown fox jumps.", DataClassification.INTERNAL),

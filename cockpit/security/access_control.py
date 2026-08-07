@@ -120,7 +120,7 @@ class Permission(StrEnum):
     RED_TEAM_RUN = "red_team:run"
     MODEL_INVOKE = "model:invoke"
     AUDIT_LOG_READ = "audit_log:read"
-    SECRETS_MANAGE = "secrets:manage"
+    SECRETS_MANAGE = "secrets:manage"  # pragma: allowlist secret -- permission name
     KEYS_ROTATE = "keys:rotate"
     CONFIG_MANAGE = "config:manage"
     USERS_MANAGE = "users:manage"
