@@ -37,3 +37,15 @@ dev = [
 # Renamed the package to `cockpit/`. Left as an unbuilt/uninstalled project
 # (application, not a library) since nothing else needs to import this by name.
 package = false
+
+[tool.black]
+# Kept equal to line-length in config/ruff.toml. When the two differ they
+# rewrite each other's output on every run.
+line-length = 100
+# templates/ holds scaffolding source, not source code: those files carry
+# {{PLACEHOLDER}} tokens and are not parseable Python until rendered.
+extend-exclude = '''
+/(
+    templates
+)/
+'''

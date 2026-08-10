@@ -24,6 +24,9 @@ extend-exclude = [
     # (own pyproject.toml, own per-file-ignores) -- scanning it under the
     # root config here would double-lint it with the wrong rules.
     "projects",
+    # Scaffolding source, not source code: tests/test_main.py contains
+    # {{PACKAGE_NAME}} placeholders and is not valid Python until rendered.
+    "templates",
 ]
 
 [lint]
