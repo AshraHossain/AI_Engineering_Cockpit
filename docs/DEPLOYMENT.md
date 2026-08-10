@@ -83,14 +83,24 @@ Being honest about the gap between MVP and production:
 - No built-in autoscaling, blue/green deploys, or CI/CD deploy pipeline —
   `.github/workflows/` here only runs tests and lint/security scanning, not
   deployment.
-- No production-grade secrets rotation.
+- Secret *storage* and key rotation helpers exist in
+  `cockpit/security/data_security.py`, but there is no integration with a
+  managed KMS — wire one up rather than holding long-lived keys in process.
 - No multi-region or high-availability guidance — add it yourself based on
   your actual traffic and uptime requirements.
-- `security/`, `governance/`, and `monitoring/` frameworks are Tier 2/3 and
-  may still be skeletons — verify what's actually implemented (not just
-  flagged "enabled") before relying on them for a real compliance
-  requirement. Read the framework's own module before trusting it in
-  production.
+- **Every framework is implemented, but implemented is not the same as
+  sufficient for your obligations.** Two limits are documented rather than
+  hidden, and you should read both before relying on them:
+  - The prompt-injection filter catches 24 of 32 corpus payloads and is
+    structurally blind to attacks assembled across turns. See
+    [SECURITY_COVERAGE.md](SECURITY_COVERAGE.md).
+  - `cockpit/security/compliance.py` reports findings and evidence and
+    deliberately emits no compliance verdict. It cannot tell you that you
+    are GDPR/HIPAA/SOX compliant, because that is a legal determination
+    software does not get to make.
+- The audit log is tamper-**evident** (a hash chain that reveals
+  modification), not tamper-proof. For a real control, anchor the head hash
+  somewhere the application cannot rewrite.
 
 ## Checklist before going live
 

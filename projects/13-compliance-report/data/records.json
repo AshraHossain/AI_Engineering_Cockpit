@@ -1,0 +1,239 @@
+{
+  "dataset_note": "SYNTHETIC DATA. Every person, record, change and identifier here is invented. Emails use the reserved example.com domain, phone numbers use the reserved 555-01xx fictional range, and the SSN is the standard 123-45-6789 placeholder. Nothing in this file refers to a real person.",
+  "time_note": "Ages are relative offsets in days, never absolute timestamps. The loader resolves them against an injected evaluation time, so the retention findings are identical on every machine on every day and no test depends on the wall clock.",
+  "designated_phi_fields": [
+    "email",
+    "phone",
+    "patient_ssn",
+    "diagnosis_code",
+    "invoice_total"
+  ],
+  "purpose_field_map": {
+    "marketing_analytics": ["email", "phone"],
+    "billing": ["invoice_total", "email"]
+  },
+  "pending_erasure_requests": ["subj-1"],
+  "audited_change_ids": ["chg-101", "chg-102", "chg-104"],
+  "retention_policies": [
+    {
+      "category": "marketing_profile",
+      "max_age_days": 365,
+      "basis": "Marketing consent is re-confirmed annually; profiles lapse after 12 months.",
+      "framework": "gdpr"
+    },
+    {
+      "category": "billing_ledger",
+      "max_age_days": 2555,
+      "basis": "Seven-year financial record retention (tax and SOX evidence).",
+      "framework": "gdpr"
+    },
+    {
+      "category": "clinical_note",
+      "max_age_days": 2190,
+      "basis": "Six-year documentation retention modelled on HIPAA 164.316(b)(2).",
+      "framework": "hipaa"
+    }
+  ],
+  "records": [
+    {
+      "record_id": "rec-001",
+      "subject_id": "subj-1",
+      "category": "marketing_profile",
+      "created_days_ago": 420,
+      "fields": {
+        "email": "dana.hall@example.com",
+        "phone": "555-555-0142",
+        "campaign": "spring-newsletter"
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-002",
+      "subject_id": "subj-1",
+      "category": "billing_ledger",
+      "created_days_ago": 2900,
+      "fields": {
+        "email": "dana.hall@example.com",
+        "invoice_total": "412.00"
+      },
+      "legal_hold": true,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-003",
+      "subject_id": "subj-1",
+      "category": "marketing_profile",
+      "created_days_ago": 10,
+      "fields": {
+        "email": "dana.hall@example.com",
+        "campaign": "summer-newsletter"
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-004",
+      "subject_id": "subj-2",
+      "category": "clinical_note",
+      "created_days_ago": 30,
+      "fields": {
+        "patient_ssn": "123-45-6789",
+        "diagnosis_code": "E11.9",
+        "internal_note": "Called member back on 555-555-0177 to confirm SSN 123-45-6789 before the visit."
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-005",
+      "subject_id": "subj-3",
+      "category": "marketing_profile",
+      "created_days_ago": 120,
+      "fields": {
+        "email": "sam.rivera@example.com",
+        "campaign": "spring-newsletter"
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-006",
+      "subject_id": "subj-10",
+      "category": "billing_ledger",
+      "created_days_ago": 45,
+      "fields": {
+        "email": "avery.stone@example.com",
+        "invoice_total": "89.50"
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-007",
+      "subject_id": "subj-1",
+      "category": "billing_ledger",
+      "created_days_ago": 60,
+      "fields": {
+        "email": "dana.hall@example.com",
+        "invoice_total": "12.00"
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": 300,
+      "related_subject_ids": ["subj-10"]
+    },
+    {
+      "record_id": "rec-008",
+      "subject_id": "subj-2",
+      "category": "support_transcript",
+      "created_days_ago": 15,
+      "fields": {
+        "summary": "Member read out card 4111 1111 1111 1111 while the call was being recorded."
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    },
+    {
+      "record_id": "rec-009",
+      "subject_id": "subj-10",
+      "category": "clinical_note",
+      "created_days_ago": 5,
+      "fields": {
+        "patient_ssn": "123-45-6789",
+        "diagnosis_code": "J45.909"
+      },
+      "legal_hold": false,
+      "retention_obligation_in_days": null,
+      "related_subject_ids": []
+    }
+  ],
+  "consent_decisions": [
+    {
+      "subject_id": "subj-1",
+      "purpose": "marketing_analytics",
+      "granted": true,
+      "decided_days_ago": 500,
+      "note": "Double opt-in web form."
+    },
+    {
+      "subject_id": "subj-3",
+      "purpose": "marketing_analytics",
+      "granted": true,
+      "decided_days_ago": 400,
+      "note": "Double opt-in web form."
+    },
+    {
+      "subject_id": "subj-3",
+      "purpose": "marketing_analytics",
+      "granted": false,
+      "decided_days_ago": 30,
+      "note": "Withdrawn from the preference centre."
+    },
+    {
+      "subject_id": "subj-2",
+      "purpose": "treatment_coordination",
+      "granted": true,
+      "decided_days_ago": 200,
+      "note": "Signed intake form."
+    }
+  ],
+  "field_accesses": [
+    {
+      "purpose": "marketing_analytics",
+      "fields": ["email"],
+      "actor_id": "svc-marketing",
+      "subject_id": "subj-1",
+      "accessed_days_ago": 5
+    },
+    {
+      "purpose": "marketing_analytics",
+      "fields": ["email"],
+      "actor_id": "svc-marketing",
+      "subject_id": "subj-3",
+      "accessed_days_ago": 5
+    },
+    {
+      "purpose": "billing",
+      "fields": ["invoice_total", "diagnosis_code"],
+      "actor_id": "clerk.jordan",
+      "subject_id": "subj-2",
+      "accessed_days_ago": 2
+    },
+    {
+      "purpose": "incident_triage",
+      "fields": ["internal_note", "summary"],
+      "actor_id": "oncall.pat",
+      "subject_id": null,
+      "accessed_days_ago": 1
+    }
+  ],
+  "approvals": [
+    {
+      "change_id": "chg-101",
+      "requested_by": "dana.ops",
+      "approved_by": "morgan.lee"
+    },
+    {
+      "change_id": "chg-102",
+      "requested_by": "morgan.lee",
+      "approved_by": "Morgan.Lee "
+    },
+    {
+      "change_id": "chg-103",
+      "requested_by": "sam.dev",
+      "approved_by": "dana.ops"
+    },
+    {
+      "change_id": "chg-104",
+      "requested_by": "sam.dev",
+      "approved_by": null
+    }
+  ]
+}

@@ -72,13 +72,20 @@ always active) is switched on or off through
 ```python
 FRAMEWORKS_ENABLED: dict[str, bool] = {
     "testing": True,
-    "evaluation": False,   # Tier 2
-    "red_teaming": False,  # Tier 2
+    "evaluation": True,
+    "red_teaming": True,
     "security": True,
-    "monitoring": False,   # Tier 2
-    "governance": False,   # Tier 3
+    "monitoring": True,
+    "governance": True,
 }
 ```
+
+All six are implemented and on by default. The flags exist so a deployment
+can switch off what it does not want — a research setup with no compliance
+obligations can drop governance, a cost-sensitive one can drop red-teaming —
+not because anything here is unfinished. See
+`cockpit/config/use_cases.py` for pre-built profiles (startup, enterprise,
+research, safety-focused).
 
 Code that touches an optional framework should call `is_enabled("<name>")`
 first and no-op (rather than error) when it's disabled:
@@ -137,8 +144,12 @@ User input
 
 Each `cockpit/` framework is designed to be inserted into this pipeline
 independently — disabling one never breaks the others, and the pipeline
-still runs end-to-end with everything off (Tier 1 default: only `testing`
-and `security` are on).
+still runs end-to-end with every optional framework switched off.
+
+Gating is applied at the top-level entry points only. Pure computation —
+cost math, percentile calculation, hash-chain verification, permission
+lookups — is never flag-gated, on the reasoning that a flag should not take
+away the tools you need while investigating an incident.
 
 ## Testing surface
 

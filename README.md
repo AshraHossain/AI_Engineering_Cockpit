@@ -77,10 +77,17 @@ tests/        Root-level tests covering cockpit/config/* and repo structure.
 
 ## Examples
 
-Projects 01-05 are standalone. Projects 06-10 additionally import the
-`cockpit/` frameworks — they exist to show the platform in use. Every
-project runs its tests offline with no API key, and 06-10 each support a
-`--dry-run` flag so you can see them work before adding credentials.
+Projects 01-05 are standalone. Projects 06-14 additionally import the
+`cockpit/` frameworks — they exist to show the platform in use: 06-10 cover
+evaluation, red-teaming, and monitoring; 11-14 cover security, governance,
+compliance, and threat detection. Every project runs its tests offline with
+no API key, and 06-14 each support `--dry-run` so you can see them work
+before adding credentials.
+
+The security and governance demos are built around the **refusal** paths —
+an unauthorized call blocked before it reaches the model, a self-approval
+rejected, a straight-to-production promotion denied. A demo where nothing
+is ever refused demonstrates nothing.
 
 | Project | Demonstrates |
 |---|---|
@@ -94,6 +101,10 @@ project runs its tests offline with no API key, and 06-10 each support a
 | [08-cost-dashboard](projects/08-cost-dashboard) | Instrumenting model calls once to get both spend and latency |
 | [09-agent-tool-use](projects/09-agent-tool-use) | Function calling, automatic and manually-authorized, with guard rails |
 | [10-batch-pipeline](projects/10-batch-pipeline) | Bulk processing with rate limiting, retries, and partial-failure tolerance |
+| [11-secure-gateway](projects/11-secure-gateway) | RBAC, input/output security, and a tamper-evident audit chain around every model call |
+| [12-governed-deployment](projects/12-governed-deployment) | Model promotion gated by N-of-M approvals — no straight-to-prod, no self-approval |
+| [13-compliance-report](projects/13-compliance-report) | GDPR/HIPAA/SOX findings with evidence, and deliberately no verdict |
+| [14-threat-monitor](projects/14-threat-monitor) | Brute force, exfiltration, and privilege-escalation detection over an event stream |
 
 ## Installation
 

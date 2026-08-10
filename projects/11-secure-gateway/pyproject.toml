@@ -1,0 +1,35 @@
+[project]
+name = "secure-gateway"
+version = "0.1.0"
+description = "A policy-enforcing gateway between a caller and a model: authorize, validate, invoke, sanitize, audit."
+authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "google-genai>=1.0",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# "../.." is the repo root. It is `package = false` by design, so it is never
+# installed into this project's venv -- putting it on the path is what lets
+# these tests import the `cockpit.*` security framework.
+pythonpath = ["src", "../.."]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# src/main.py prints the CLI's actual output (the decision, the response, and
+# the audit summary -- not diagnostics), so routing it through logging would
+# prefix every line with timestamps and levels. E402: the sys.path bootstrap
+# for the repo root has to run before the `cockpit.*` imports it enables.
+"src/main.py" = ["T201", "E402"]
