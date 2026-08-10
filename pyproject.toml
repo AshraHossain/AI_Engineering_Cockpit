@@ -2,7 +2,7 @@
 name = "ai-engineering-cockpit"
 version = "0.1.0"
 description = "Production-grade AIDevOps platform: testing, evaluation, red-teaming, security, monitoring, and governance for AI systems."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -2,7 +2,7 @@
 name = "hybrid-orchestrator"
 version = "0.1.0"
 description = "Hybrid routing between a local Ollama model and cloud Gemini, with graceful fallback where Ollama isn't available."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -54,11 +54,11 @@ public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported privately by opening a
-[GitHub Security Advisory](https://github.com/AshraHossain/AI_Engineering_Cockpit/security/advisories/new), which is visible only
-to the maintainer, or by contacting a maintainer directly through their
-GitHub profile. All complaints will be reviewed and investigated promptly
-and fairly.
+reported privately to the project maintainers at `sumon-2930@outlook.com`,
+or by opening a
+[GitHub Security Advisory](https://github.com/AshraHossain/AI_Engineering_Cockpit/security/advisories/new),
+which is visible only to the maintainer. All complaints will be reviewed and
+investigated promptly and fairly.
 
 All project maintainers are obligated to respect the privacy and security of
 the reporter of any incident.

@@ -2,7 +2,7 @@
 name = "red-team-runner"
 version = "0.1.0"
 description = "Run the cockpit prompt-injection corpus and edge-case suite against a target, and report the request-time defense-coverage gap."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

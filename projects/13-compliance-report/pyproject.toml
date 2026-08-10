@@ -2,7 +2,7 @@
 name = "compliance-report"
 version = "0.1.0"
 description = "Run the cockpit's GDPR/HIPAA/SOX technical controls over a synthetic dataset and report findings -- never a verdict."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

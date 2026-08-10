@@ -19,14 +19,17 @@ the `main` branch only.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report it privately through
-[GitHub Security Advisories](https://github.com/AshraHossain/AI_Engineering_Cockpit/security/advisories/new) for this repository.
-That channel is private, notifies the maintainer directly, and gives us a
-place to coordinate a fix and disclosure with you.
+Report it privately using either channel:
 
-It is deliberately the only channel listed. A security policy that names an
-unmonitored inbox is worse than one that names none: it routes a real report
-somewhere nobody is reading.
+1. **Preferred:** [GitHub Security Advisories](https://github.com/AshraHossain/AI_Engineering_Cockpit/security/advisories/new)
+   for this repository. Private, notifies the maintainer directly, and gives
+   us a place to coordinate a fix and disclosure with you.
+2. **Email:** `sumon-2930@outlook.com`
+
+Use the advisory channel where you can — it keeps the report, the fix, and
+the disclosure timeline in one place. Email is there for when you would
+rather not open a GitHub account, or the issue concerns the repository
+itself.
 
 When reporting, please include:
 

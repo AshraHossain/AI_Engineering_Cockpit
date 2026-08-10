@@ -2,7 +2,7 @@
 name = "rag-chatbot"
 version = "0.1.0"
 description = "Minimal Retrieval-Augmented Generation demo: chunk, retrieve, augment, and answer with Gemini."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -2,7 +2,7 @@
 name = "secure-gateway"
 version = "0.1.0"
 description = "A policy-enforcing gateway between a caller and a model: authorize, validate, invoke, sanitize, audit."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

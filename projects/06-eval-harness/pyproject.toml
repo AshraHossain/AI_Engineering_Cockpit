@@ -2,7 +2,7 @@
 name = "eval-harness"
 version = "0.1.0"
 description = "Score a Q&A pipeline against a reference dataset with the cockpit evaluation framework, and print a quality/safety/cost scorecard."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

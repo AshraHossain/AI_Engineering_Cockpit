@@ -2,7 +2,7 @@
 name = "multi-model-orchestrator"
 version = "0.1.0"
 description = "Run the same prompt against Gemini and OpenAI and compare latency and output."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

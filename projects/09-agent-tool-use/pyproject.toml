@@ -2,7 +2,7 @@
 name = "agent-tool-use"
 version = "0.1.0"
 description = "LLM function calling / tool use: automatic and manual modes, allowlist-authorized tool execution, instrumented with the cockpit frameworks."
-authors = [{ name = "Ash", email = "ashrafuzzmanhossain@gmail.com" }]
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
