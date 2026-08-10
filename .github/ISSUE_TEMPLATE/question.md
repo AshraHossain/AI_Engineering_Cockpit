@@ -21,4 +21,4 @@ Anything that helps us answer accurately: your OS (Windows/Mac/Linux), which pro
 framework module you're working with, and what you're trying to achieve.
 
 Note: for open-ended discussion (not a specific bug or question), consider using
-[GitHub Discussions](../../discussions) instead of an issue.
+[GitHub Discussions](https://github.com/AshraHossain/AI_Engineering_Cockpit/discussions) instead of an issue.
