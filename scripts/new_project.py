@@ -207,10 +207,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Installing dependencies...")
         run_command(["uv", "sync", "--all-groups"], cwd=destination)
 
-    if args.git:
-        if run_command(["git", "init", "-q"], cwd=destination):
-            run_command(["git", "add", "-A"], cwd=destination)
-            run_command(["git", "commit", "-q", "-m", "chore: scaffold project"], cwd=destination)
+    if args.git and run_command(["git", "init", "-q"], cwd=destination):
+        run_command(["git", "add", "-A"], cwd=destination)
+        run_command(["git", "commit", "-q", "-m", "chore: scaffold project"], cwd=destination)
 
     print("\nNext:")
     print(f"  cd {destination}")
