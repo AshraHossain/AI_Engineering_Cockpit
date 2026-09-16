@@ -1,14 +1,28 @@
 # Setup
 
-Detailed installation instructions for Windows and Mac. For the condensed
+Detailed installation instructions for Windows, Mac, and Linux. For the condensed
 version, see the [README quick start](README.md#quick-start-5-minutes).
 
-## Prerequisites
+## Prerequisites (All Platforms)
 
 - Git
-- Windows: PowerShell (built in). Mac: Bash/Zsh (built in).
+- Windows: PowerShell (built in)
+- Mac: Bash/Zsh (built in)
+- Linux: Bash (built in); optional package manager (apt, dnf, pacman, apk)
 - No local Python install required — [`uv`](https://docs.astral.sh/uv/)
   manages the Python toolchain itself.
+
+## Platform Support Matrix
+
+| Platform | Setup Script | Ollama Support | Cloud APIs | Status |
+|---|---|---|---|---|
+| Windows | `setup-windows.ps1` | ❌ Not supported | ✅ Yes | Fully supported |
+| Mac (Intel) | `setup-mac.sh` | ✅ CPU-only | ✅ Yes | Fully supported |
+| Mac (Apple Silicon) | `setup-mac.sh` | ✅ GPU-accelerated | ✅ Yes | Fully supported |
+| Linux (Ubuntu/Debian) | `setup-linux.sh` | ✅ Supported | ✅ Yes | Fully supported |
+| Linux (Fedora/RHEL) | `setup-linux.sh` | ✅ Supported | ✅ Yes | Fully supported |
+| Linux (Arch) | `setup-linux.sh` | ✅ Supported | ✅ Yes | Fully supported |
+| Linux (Alpine) | `setup-linux.sh` | ✅ Supported | ✅ Yes | Fully supported |
 
 ## Windows (PowerShell)
 
@@ -43,6 +57,34 @@ bash scripts/setup-mac.sh
 
 Same steps as Windows, plus an optional Ollama install via Homebrew (skipped
 gracefully if Homebrew isn't installed — cloud-only mode still works fine).
+
+**Intel iMac**: Installs Ollama with CPU-only inference (1-5 tokens/sec on typical CPU).
+
+**Apple Silicon (M1/M2/M3)**: Installs Ollama with native GPU acceleration (10-50+ tokens/sec).
+
+## Linux (Bash)
+
+```bash
+git clone <this-repo-url> AI_Engineering_Cockpit
+cd AI_Engineering_Cockpit
+bash scripts/setup-linux.sh
+```
+
+Same steps as Mac, plus automatic detection of your package manager (apt, dnf,
+pacman, apk) and optional Ollama install. Works on Ubuntu, Debian, Fedora,
+RHEL, Arch, Alpine, and other distributions.
+
+**Package Manager Detection**:
+- **Ubuntu/Debian**: Uses `apt-get`
+- **Fedora/RHEL**: Uses `dnf`
+- **Arch**: Uses `pacman` (requires `sudo`)
+- **Alpine**: Uses `apk`
+- **Other**: Falls back to Ollama's official install script or cloud-only mode
+
+**GPU Support** (Linux):
+- **NVIDIA GPU**: Ollama detects CUDA automatically (ensure drivers are installed)
+- **AMD GPU**: Ollama supports ROCm (requires setup; see `ollama.ai` docs)
+- **CPU-only**: Works fine, similar performance to Intel iMac
 
 ## Verify your installation
 
