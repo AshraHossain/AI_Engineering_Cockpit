@@ -8,6 +8,26 @@ copied out and run on its own.
 
 Run it with:
     uv run python src/main.py
+
+SECRETS MANAGEMENT
+==================
+This example loads the API key from a simple environment check. For production
+or team environments, use the Cockpit secrets manager:
+
+    from cockpit.security.secrets_manager import get_secret
+    api_key = get_secret("GEMINI_API_KEY")
+
+The secrets manager supports:
+  - Environment variables (highest priority)
+  - Encrypted .env.gpg (GPG-encrypted)
+  - Plaintext .env (development)
+  - External vaults (AWS Secrets Manager, Vault, 1Password, etc.)
+
+Setup secrets with:
+    python -m cockpit.config.secrets_cli init
+    python -m cockpit.config.secrets_cli encrypt  # (optional: encrypt with GPG)
+
+See docs/SECRETS.md for detailed guidance.
 """
 
 from __future__ import annotations
