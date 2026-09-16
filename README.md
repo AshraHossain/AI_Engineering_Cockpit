@@ -7,50 +7,43 @@ in real-world scenarios.
 
 **Platform:** Windows, Mac (Intel & Apple Silicon), Linux (Ubuntu/Debian/Fedora/Arch/Alpine)  
 **Setup time:** ~5 minutes per machine  
-**All three tiers complete.** Every framework ships with real, working logic and is enabled by default. Nothing here is a placeholder.
+**Status:** All three tiers complete. Every framework ships with real, working logic. Nothing here is a placeholder.  
+**Secrets:** Production-grade secrets management (encrypted .env.gpg, external vaults, env vars).
 
 ---
 
 ## 🚀 Quick start (5 minutes)
 
-### Windows (PowerShell)
-```powershell
-git clone https://github.com/AshraHossain/AI_Engineering_Cockpit.git AI_Engineering_Cockpit
+### All Platforms (Unified Setup)
+
+```bash
+git clone https://github.com/AshraHossain/AI_Engineering_Cockpit.git
 cd AI_Engineering_Cockpit
+
+# Windows (PowerShell):
 powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
 
-cp .env.example .env   # then add your GEMINI_API_KEY
-
-cd projects/01-hello-world
-cp .env.example .env
-uv sync
-uv run python src/main.py
+# Mac or Linux (Bash):
+bash scripts/setup-mac.sh    # or setup-linux.sh
 ```
 
-### Mac (Bash)
+### Set Up Secrets (Interactive)
+
 ```bash
-git clone https://github.com/AshraHossain/AI_Engineering_Cockpit.git AI_Engineering_Cockpit
-cd AI_Engineering_Cockpit
-bash scripts/setup-mac.sh
+# Initialize API keys interactively
+python -m cockpit.config.secrets_cli init
 
-cp .env.example .env   # then add your GEMINI_API_KEY
+# Verify secrets loaded
+python -m cockpit.config.secrets_cli verify
 
-cd projects/01-hello-world
-cp .env.example .env
-uv sync
-uv run python src/main.py
+# (Optional) Encrypt with GPG for production
+python -m cockpit.config.secrets_cli encrypt
 ```
 
-### Linux (Bash)
+### Run Your First Project
+
 ```bash
-git clone https://github.com/AshraHossain/AI_Engineering_Cockpit.git AI_Engineering_Cockpit
-cd AI_Engineering_Cockpit
-bash scripts/setup-linux.sh
-
-cp .env.example .env   # then add your GEMINI_API_KEY
-
 cd projects/01-hello-world
-cp .env.example .env
 uv sync
 uv run python src/main.py
 ```
@@ -63,11 +56,26 @@ uv run python src/main.py
 5. Creates `.env` from `.env.example`
 6. Runs the test suite (mocked, no API keys needed)
 
-See [SETUP.md](SETUP.md) for detailed platform-specific guidance and troubleshooting.
+**Secrets management (new):**
+- Interactive setup: `python -m cockpit.config.secrets_cli init`
+- Load from: env vars → encrypted .env.gpg → plaintext .env → external vaults
+- All projects inherit secure secrets automatically
+
+See [SETUP.md](SETUP.md) for detailed platform-specific guidance and [docs/SECRETS.md](docs/SECRETS.md) for production secrets workflows.
 
 ---
 
 ## 📋 What makes this different
+
+### Secrets management is production-grade
+`cockpit/security/secrets_manager.py` handles API keys securely across all
+environments:
+- **Development**: Plaintext `.env` (git-ignored)
+- **Team**: Encrypted `.env.gpg` (GPG-encrypted, shareable)
+- **Production**: External vaults (AWS Secrets Manager, HashiCorp Vault, 1Password)
+
+All projects access secrets the same way — no hardcoding, no plaintext in logs.
+See [docs/SECRETS.md](docs/SECRETS.md) for setup and integration.
 
 ### Security is first-class, not bolted on
 `cockpit/security/` ships real regex-based prompt-injection detection and PII
@@ -96,8 +104,9 @@ no live API key needed to run `pytest`, but the code talks to real provider SDKs
 - **Windows**: Cloud-only (Gemini, OpenAI, Anthropic APIs)
 - **Mac (Intel)**: Hybrid (cloud + CPU-only Ollama)
 - **Mac (Apple Silicon)**: Hybrid (cloud + GPU-accelerated Ollama)
-- **Linux**: Hybrid (cloud + GPU-accelerated Ollama on NVIDIA/AMD GPUs)
+- **Linux (NVIDIA/AMD)**: Hybrid (cloud + GPU-accelerated Ollama)
 
+Setup is identical across all platforms (`setup-windows.ps1`, `setup-mac.sh`, `setup-linux.sh`).
 See [docs/WINDOWS_VS_MAC.md](docs/WINDOWS_VS_MAC.md) and [docs/LINUX_SETUP.md](docs/LINUX_SETUP.md).
 
 ---
@@ -231,6 +240,7 @@ uv run pytest -c config/pytest.ini --rootdir=. -v    # root suite, no API keys n
 ## 📖 Documentation
 
 - **[SETUP.md](SETUP.md)** — Detailed per-platform setup guide with troubleshooting
+- **[docs/SECRETS.md](docs/SECRETS.md)** — **NEW:** Secrets management (encrypted .env.gpg, external vaults, CLI)
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — System design, module overview
 - **[docs/WINDOWS_VS_MAC.md](docs/WINDOWS_VS_MAC.md)** — Why platforms differ
 - **[docs/LINUX_SETUP.md](docs/LINUX_SETUP.md)** — Linux-specific guidance (GPU setup, package managers)
@@ -239,6 +249,57 @@ uv run pytest -c config/pytest.ini --rootdir=. -v    # root suite, no API keys n
 - **[docs/API_COMPARISON.md](docs/API_COMPARISON.md)** — Gemini vs OpenAI vs Anthropic
 - **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** — First project walkthrough
 - **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — Common issues and fixes
+
+---
+
+## 🔐 Secrets Management
+
+### Quick Setup (Interactive)
+
+```bash
+# Initialize API keys
+python -m cockpit.config.secrets_cli init
+
+# Verify secrets loaded
+python -m cockpit.config.secrets_cli verify
+
+# Display loaded secrets (masked)
+python -m cockpit.config.secrets_cli show
+
+# Encrypt with GPG (production)
+python -m cockpit.config.secrets_cli encrypt
+```
+
+### How Projects Access Secrets
+
+**Automatic (most projects):**
+```python
+from cockpit.config.settings import get_settings
+settings = get_settings()
+api_key = settings.gemini_api_key  # Loaded securely
+```
+
+**Direct access:**
+```python
+from cockpit.security.secrets_manager import get_secret
+api_key = get_secret("GEMINI_API_KEY")
+```
+
+**With verification:**
+```python
+from cockpit.security.secrets_manager import get_secrets_manager
+manager = get_secrets_manager()
+if not manager.verify(["GEMINI_API_KEY"]):
+    raise RuntimeError("Missing required API key")
+```
+
+**Secrets load from (first match wins):**
+1. Environment variables (highest priority)
+2. Encrypted `.env.gpg` (GPG-encrypted, recommended for teams)
+3. Plaintext `.env` (development only)
+4. External vaults (AWS Secrets Manager, Vault, 1Password, etc.)
+
+See [docs/SECRETS.md](docs/SECRETS.md) for production workflows and integration examples.
 
 ---
 
@@ -296,12 +357,42 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.
 ## 🎯 Next Steps
 
 1. **Clone and setup** using the quick-start above (5 minutes)
-2. **Run the first example** `projects/01-hello-world` (add an API key first)
-3. **Explore the frameworks** in `cockpit/` — each module is standalone and well-commented
-4. **Try a demo project** that interests you (06-14 show frameworks in action)
-5. **Read the architecture** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to understand how pieces fit
-6. **Deploy one project** following [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+   ```bash
+   git clone https://github.com/AshraHossain/AI_Engineering_Cockpit.git
+   cd AI_Engineering_Cockpit
+   bash scripts/setup-mac.sh  # or setup-linux.sh or setup-windows.ps1
+   ```
+
+2. **Set up secrets** (interactive, 2 minutes)
+   ```bash
+   python -m cockpit.config.secrets_cli init
+   python -m cockpit.config.secrets_cli verify
+   ```
+
+3. **Run the first example** `projects/01-hello-world`
+   ```bash
+   cd projects/01-hello-world
+   uv sync
+   uv run python src/main.py
+   ```
+
+4. **Try a framework** that interests you:
+   - [06-eval-harness](projects/06-eval-harness) — Evaluation framework
+   - [07-red-team-runner](projects/07-red-team-runner) — Security testing
+   - [11-secure-gateway](projects/11-secure-gateway) — Access control
+   - [12-governed-deployment](projects/12-governed-deployment) — Approval workflows
+
+5. **Explore the frameworks** in `cockpit/` — each module is standalone and well-commented
+
+6. **Read the architecture** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to understand how pieces fit
+
+7. **Deploy to production** following [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/SECRETS.md](docs/SECRETS.md)
 
 ---
 
-**Questions?** Open an issue, check [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), or see [CONTRIBUTING.md](CONTRIBUTING.md) for how to get help.
+**Questions?**
+- **Setup issues?** See [SETUP.md](SETUP.md) and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- **Secrets/security?** See [docs/SECRETS.md](docs/SECRETS.md)
+- **Linux/platform-specific?** See [docs/LINUX_SETUP.md](docs/LINUX_SETUP.md)
+- **Contributing?** See [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Security issues?** See [SECURITY.md](SECURITY.md)
