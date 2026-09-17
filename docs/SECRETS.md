@@ -34,7 +34,7 @@ The `SecretsManager` loads secrets from multiple sources with fallback:
 
 1. **Environment variables** (highest priority)
    ```bash
-   export GEMINI_API_KEY="sk-..."
+   export GEMINI_API_KEY="sk-..."  # pragma: allowlist secret
    python src/main.py
    ```
 
@@ -98,7 +98,7 @@ if not manager.verify(["GEMINI_API_KEY", "MY_CUSTOM_KEY"]):
 Secrets manager checks env vars first:
 
 ```bash
-export GEMINI_API_KEY="sk-..."
+export GEMINI_API_KEY="sk-..."  # pragma: allowlist secret
 python src/main.py
 ```
 
@@ -356,7 +356,7 @@ OLLAMA_HOST: http://localhost:11434
 2. **Never store secrets in code or .env files:**
    ```python
    # BAD
-   GEMINI_API_KEY = "sk-..."  # Don't do this
+   GEMINI_API_KEY = "sk-..."  # Don't do this  # pragma: allowlist secret
    
    # GOOD
    from cockpit.security.secrets_manager import get_secret
