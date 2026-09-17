@@ -1,8 +1,13 @@
 # ORION — Multi-Tool Orchestration for KYC/AML Alert Triage
 
+**Project:** `15-orion-alert-triage`
+**Location:** `projects/15-orion-alert-triage/` (AI Engineering Cockpit repo)
 **Date:** 2026-09-16
 **Status:** Approved design, not yet implemented
-**Location:** `projects/15-orion-kyc-orchestrator/`
+
+ORION is the agent's name and is used throughout the code and documentation. The
+directory is named for what the project does, following the numbered convention
+of the other fourteen cockpit projects.
 
 ## Purpose
 
