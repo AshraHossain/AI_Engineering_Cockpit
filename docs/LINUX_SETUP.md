@@ -250,7 +250,7 @@ LOG_LEVEL=INFO  # or DEBUG, WARNING, ERROR
 
 **For persistent environment variables** across sessions, add to `~/.bashrc` or `~/.zshrc`:
 ```bash
-export GEMINI_API_KEY="your-key-here"
+export GEMINI_API_KEY="your-key-here"  # pragma: allowlist secret
 export OLLAMA_HOST="http://localhost:11434"
 ```
 
