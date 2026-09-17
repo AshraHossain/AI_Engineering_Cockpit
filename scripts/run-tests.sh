@@ -36,7 +36,10 @@ run_suite() {
     (
         cd "$dir"
         uv sync --all-groups --quiet
-        uv run pytest "${config_args[@]}" --cov --cov-report=term-missing "${EXTRA_ARGS[@]}"
+        # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": macOS ships bash 3.2, where
+        # expanding an empty array under `set -u` aborts with "unbound variable".
+        # Project suites pass no config args, and `make test-all` passes no extras.
+        uv run pytest ${config_args[@]+"${config_args[@]}"} --cov --cov-report=term-missing ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
     ) || FAILURES+=("$label")
 }
 
