@@ -76,6 +76,34 @@ or commands silently using the wrong Python.
   run the projects themselves, so it should never fail due to a missing API
   key.
 
+## `cryptography` fails to build on an Intel Mac
+
+**Symptom:** `uv sync` stops at `Building cryptography==50.0.0` and reports
+`Failed to build`, usually with a linker error mentioning `xcrun` or
+`MacOSX.sdk`.
+
+**Why:** from 49.0.0 onward, `cryptography` publishes no prebuilt wheels for
+Intel macOS, so `uv` compiles it from source. That needs a Rust toolchain and a
+working macOS SDK. Apple Silicon Macs, Linux and Windows download a prebuilt
+wheel and never reach this step.
+
+**Fix:**
+
+- Install Rust if it is missing: <https://rustup.rs>.
+- If the link step fails with `xcrun: error: unable to lookup item 'Path' in
+  SDK 'macosx'`, or a `dlopen` error inside `CoreDevice.framework`, the selected
+  Xcode is broken — common after a macOS update. Build against the standalone
+  Command Line Tools for this one command, without changing any system setting:
+
+  ```bash
+  DEVELOPER_DIR=/Library/Developer/CommandLineTools uv sync --all-groups
+  ```
+
+  To repair Xcode itself, run `xcodebuild -runFirstLaunch`, or reinstall Xcode.
+- **Do not** cap `cryptography` below 49 to get a prebuilt wheel. At the time of
+  writing (September 2026) 48.0.0 has seven published vulnerabilities, and
+  `cockpit/security/data_security.py` depends on it for encryption.
+
 ## PowerShell script execution blocked (Windows)
 
 **Symptom:** Running `scripts\setup-windows.ps1` directly errors with
