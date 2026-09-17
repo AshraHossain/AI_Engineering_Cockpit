@@ -1,9 +1,9 @@
 """Enable/disable switches for the cockpit's optional frameworks.
 
-Tier 1 (MVP) ships testing and security live; evaluation, red-teaming,
-monitoring, and governance are Tier 2/3 and default off. Frameworks should
-check ``is_enabled()`` before doing real work so they degrade to a no-op
-when disabled rather than erroring.
+All six frameworks ship enabled. The switches exist so a deployment can
+trim what it runs, not because anything is unfinished. Frameworks check
+``is_enabled()`` at their entry points so they degrade to a no-op when
+disabled rather than erroring.
 """
 
 from __future__ import annotations
