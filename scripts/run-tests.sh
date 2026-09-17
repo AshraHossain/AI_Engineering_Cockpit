@@ -51,6 +51,13 @@ if [ -d "$REPO_ROOT/projects" ]; then
     for project_dir in "$REPO_ROOT"/projects/*/; do
         [ -d "$project_dir" ] || continue
         project_name="$(basename "$project_dir")"
+        # Skip anything this repository ignores, such as a separate repository
+        # checked out under projects/ for convenience -- its tests are not ours.
+        # Outside a git checkout, check-ignore fails and nothing is skipped.
+        if git -C "$REPO_ROOT" check-ignore -q "$project_dir" 2>/dev/null; then
+            echo "Skipping projects/$project_name — ignored by this repository"
+            continue
+        fi
         run_suite "projects/$project_name" "${project_dir%/}"
     done
 fi
