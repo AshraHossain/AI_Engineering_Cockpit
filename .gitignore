@@ -45,3 +45,8 @@ logs/
 outputs/*
 !outputs/.gitkeep
 *.log
+
+# ORION lives at projects/15-orion-alert-triage/ but is its own repository
+# (github.com/AshraHossain/Orion-alert-triage). Ignored here so the cockpit
+# never half-tracks it as a stray directory or an accidental gitlink.
+/projects/15-orion-alert-triage/
