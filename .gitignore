@@ -50,3 +50,10 @@ outputs/*
 # (github.com/AshraHossain/Orion-alert-triage). Ignored here so the cockpit
 # never half-tracks it as a stray directory or an accidental gitlink.
 /projects/15-orion-alert-triage/
+
+# graphify: commit the graph and report (rebuilding costs ~400k tokens);
+# keep the extraction cache and run bookkeeping local.
+graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/cost.json
+graphify-out/.graphify_*
