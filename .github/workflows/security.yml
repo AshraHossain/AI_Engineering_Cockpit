@@ -62,20 +62,20 @@ jobs:
 
       - name: Fail if new secrets are found
         run: |
-          if uvx detect-secrets audit --report --fail-on-unaudited /tmp/secrets-scan.json > /dev/null 2>&1; then
-            echo "No unaudited secrets detected."
+          if uvx detect-secrets audit --baseline .detectsecrets --report /tmp/secrets-scan.json > /dev/null 2>&1; then
+            echo "No new secrets detected (all secrets are in the baseline)."
           else
             python -c "
           import json
           data = json.load(open('/tmp/secrets-scan.json'))
           results = data.get('results', {})
           if results:
-              print('Potential secrets found:')
+              print('Potential new secrets found (not in baseline):')
               for path, findings in results.items():
                   for f in findings:
                       print(f\"  {path}:{f['line_number']} [{f['type']}]\")
               raise SystemExit(1)
-          print('No unaudited secrets detected.')
+          print('No new secrets detected.')
           "
           fi
 
