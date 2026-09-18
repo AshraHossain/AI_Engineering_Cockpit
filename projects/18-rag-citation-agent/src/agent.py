@@ -29,7 +29,27 @@ import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
+
+__all__ = [
+    "ABSTAIN_TEXT",
+    "EMPTY_DRAFT",
+    "LLM",
+    "Answer",
+    "Citation",
+    "CitationGrounder",
+    "ConfidenceScorer",
+    "ContextItem",
+    "GroundedDraft",
+    "LoggingMetrics",
+    "MetricsLogger",
+    "Query",
+    "RAGAgent",
+    "Retriever",
+    "SearchFallback",
+    "build_grounded_prompt",
+    "merge_context",
+]
 
 log = logging.getLogger("rag")
 
@@ -252,3 +272,178 @@ class ConfidenceScorer:
         support = sum(min(max(i.score, 0.0), 1.0) for i in draft.cited) / len(draft.cited)
         validity = draft.valid_refs / (draft.valid_refs + draft.unknown_refs)
         return coverage * support * validity
+
+
+# --------------------------------------------------------------------------- #
+# Observability
+# --------------------------------------------------------------------------- #
+
+
+class MetricsLogger(Protocol):
+    """Cross-cutting hook. A Protocol, not an ABC: pass anything shaped
+    like this (a StatsD client wrapper, an OTel meter, a test double)."""
+
+    def increment(self, name: str, **tags: str) -> None: ...
+
+    def timing(self, name: str, value_ms: float, **tags: str) -> None: ...
+
+    def observe(self, name: str, value: float, **tags: str) -> None: ...
+
+
+class LoggingMetrics:
+    """Default implementation: stdlib logging, plus in-process counters.
+
+    TODO(integration): forward to StatsD / Prometheus / OpenTelemetry;
+    `observe` is a histogram (confidence distribution).
+    """
+
+    def __init__(self) -> None:
+        self.counters: dict[str, int] = {}
+
+    def increment(self, name: str, **tags: str) -> None:
+        self.counters[name] = self.counters.get(name, 0) + 1
+        log.debug("metric.increment %s %s", name, tags)
+
+    def timing(self, name: str, value_ms: float, **tags: str) -> None:
+        log.debug("metric.timing %s=%.2fms %s", name, value_ms, tags)
+
+    def observe(self, name: str, value: float, **tags: str) -> None:
+        log.debug("metric.observe %s=%.3f %s", name, value, tags)
+
+
+# --------------------------------------------------------------------------- #
+# Orchestration
+# --------------------------------------------------------------------------- #
+
+
+def merge_context(primary: Sequence[ContextItem], extra: Sequence[ContextItem]) -> list[ContextItem]:
+    """Primary items first, then extra items whose `source_uri` is new."""
+    seen = {item.source_uri for item in primary}
+    merged = list(primary)
+    for item in extra:
+        if item.source_uri not in seen:
+            seen.add(item.source_uri)
+            merged.append(item)
+    return merged
+
+
+class RAGAgent:
+    """Retrieve -> generate -> ground -> score, with one fallback round.
+
+    Returns a grounded answer once confidence reaches `threshold`, otherwise
+    abstains with ABSTAIN_TEXT. Retriever and search failures degrade (no
+    context, abstain); LLM failures propagate, because a silent "I don't
+    know" would hide an outage.
+    """
+
+    def __init__(
+        self,
+        retriever: Retriever,
+        llm: LLM,
+        fallback: SearchFallback,
+        *,
+        grounder: CitationGrounder | None = None,
+        scorer: ConfidenceScorer | None = None,
+        metrics: MetricsLogger | None = None,
+        threshold: float = 0.6,
+        top_k: int = 5,
+    ) -> None:
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"threshold must be in [0, 1], got {threshold}")
+        if top_k < 1:
+            raise ValueError(f"top_k must be >= 1, got {top_k}")
+        self._retriever = retriever
+        self._llm = llm
+        self._fallback = fallback
+        self._grounder = grounder or CitationGrounder()
+        self._scorer = scorer or ConfidenceScorer()
+        self._metrics: MetricsLogger = metrics or LoggingMetrics()
+        self._threshold = threshold
+        self._top_k = top_k
+
+    async def answer(self, query: Query) -> Answer:
+        """Answer `query`, falling back once, abstaining if still unsure."""
+        self._metrics.increment("rag.query")
+        context = await self.retrieve_context(query)
+        draft = await self.generate_answer_with_sources(context, query)
+        confidence = self.score_confidence(draft, stage="primary")
+        if confidence >= self._threshold:
+            return _to_answer(draft, confidence, context, used_fallback=False)
+
+        self._metrics.increment("rag.fallback")
+        found = await self.fallback_search(query)
+        if found is None:
+            return self._abstain(confidence, context)
+        merged = merge_context(context, found)
+        draft = await self.generate_answer_with_sources(merged, query)
+        confidence = self.score_confidence(draft, stage="fallback")
+        if confidence >= self._threshold:
+            return _to_answer(draft, confidence, merged, used_fallback=True)
+        return self._abstain(confidence, merged)
+
+    async def retrieve_context(self, query: Query) -> list[ContextItem]:
+        """Primary retrieval. A failing retriever yields no context, not an error."""
+        started = time.perf_counter()
+        try:
+            return await self._retriever.retrieve(query, self._top_k)
+        except Exception:
+            log.exception("retrieve failed for query %s", query.id)
+            self._metrics.increment("rag.retrieve.error")
+            return []
+        finally:
+            self._timing("retrieve", started)
+
+    async def generate_answer_with_sources(
+        self, context: Sequence[ContextItem], query: Query
+    ) -> GroundedDraft:
+        """Ask the LLM, then ground its citations. Empty context skips the call."""
+        if not context:
+            return EMPTY_DRAFT
+        started = time.perf_counter()
+        try:
+            text = await self._llm.complete(build_grounded_prompt(query, context))
+        finally:
+            self._timing("generate", started)
+        draft = self._grounder.ground(text, context)
+        if draft.unknown_refs:
+            log.warning("query %s cited %d unknown source(s)", query.id, draft.unknown_refs)
+            self._metrics.increment("rag.hallucination_flag")
+        return draft
+
+    def score_confidence(self, draft: GroundedDraft, *, stage: str) -> float:
+        """Score a draft and record it in the confidence distribution."""
+        confidence = self._scorer.score(draft)
+        self._metrics.observe("rag.confidence", confidence, stage=stage)
+        return confidence
+
+    async def fallback_search(self, query: Query) -> list[ContextItem] | None:
+        """External search. None means the search itself failed."""
+        started = time.perf_counter()
+        try:
+            return await self._fallback.search(query)
+        except Exception:
+            log.exception("fallback search failed for query %s", query.id)
+            self._metrics.increment("rag.fallback.error")
+            return None
+        finally:
+            self._timing("fallback_search", started)
+
+    def _abstain(self, confidence: float, context: Sequence[ContextItem]) -> Answer:
+        self._metrics.increment("rag.abstain")
+        return Answer(ABSTAIN_TEXT, (), confidence, True, tuple(i.id for i in context))
+
+    def _timing(self, stage: str, started: float) -> None:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        self._metrics.timing("rag.stage", elapsed_ms, stage=stage)
+
+
+def _to_answer(
+    draft: GroundedDraft, confidence: float, context: Sequence[ContextItem], *, used_fallback: bool
+) -> Answer:
+    return Answer(
+        text=draft.text,
+        citations=tuple(Citation.of(item) for item in draft.cited),
+        confidence=confidence,
+        used_fallback=used_fallback,
+        raw_context_ids=tuple(item.id for item in context),
+    )
