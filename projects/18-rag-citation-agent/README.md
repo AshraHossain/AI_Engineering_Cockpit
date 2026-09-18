@@ -108,30 +108,160 @@ class Answer:
     raw_context_ids: [str]    # IDs of sources used (for audit)
 ```
 
-## Running
+## Getting Started
 
-### Tests (16 tests, both languages, all rules covered)
+### Prerequisites
 
-Python:
+- **Python 3.11+**
+- **Node 22.18+** (for TypeScript)
+- **VS Code** (recommended) or any text editor
+
+### First Time Setup
+
+Open VS Code, navigate to this directory, and:
+
 ```bash
-uv run pytest
+# Activate the virtual environment
+source .venv/bin/activate                    # macOS/Linux
+# or
+.venv\Scripts\activate                       # Windows
+
+# Install the project (creates venv if needed, installs all dependencies)
+uv sync --all-groups
+
+# Verify Python version
+python --version
 ```
 
-TypeScript (Node 22.18+, no build needed):
+You should see Python 3.11 or 3.12 installed.
+
+### Running the Tests
+
+After setup, run tests to verify everything works:
+
+#### Python (16 tests, ~0.1 seconds)
+
+```bash
+uv run pytest -v
+```
+
+**Output you'll see:**
+```
+tests/test_agent.py::test_a_fingerprint_is_stable_and_covers_the_model PASSED
+tests/test_agent.py::test_outcome_for_each_final_stop_reason[end_turn-ok] PASSED
+...
+16 passed in 0.05s
+```
+
+**What this means:** all grounding rules are working correctly. Each test verifies one rule:
+- Citation marker renumbering
+- Unknown citation detection
+- Confidence scoring
+- Fallback merging
+- Abstention when below threshold
+- Error propagation
+
+#### TypeScript (16 tests, Node 22.18+ required)
+
 ```bash
 node --test tests/agent.test.ts
 ```
 
-Both test suites verify:
-- Citation marker renumbering
-- Unknown reference detection
-- Confidence formula edge cases
-- Fallback merge behavior
-- Abstention logic
-- Retriever and search error handling
-- LLM error propagation
+**Output:**
+```
+✔ test/tests for citation grounder
+✔ test/tests for confidence scorer
+✔ test/agent orchestrator
+✔ ...
+16 tests passing
+```
 
-Coverage: Python 99%, TypeScript type-check strict.
+#### Coverage Report
+
+```bash
+uv run pytest --cov=src --cov-report=term
+```
+
+**Output shows:**
+```
+Name           Stmts   Miss  Cover
+----------------------------------
+src/agent.py     197      1    99%
+```
+
+99% coverage means the code is heavily tested. The 1 missed line is an edge case in error handling that's hard to trigger in tests.
+
+### Understanding the Test Results
+
+Each test file (`tests/test_agent.py` or `tests/agent.test.ts`) contains multiple test cases. Here's what each category tests:
+
+#### Grounding Tests
+- ✅ `test_marker_renumbering` — checks that citations are renumbered by first appearance
+- ✅ `test_unknown_ref_detection` — verifies invented citations are caught
+- ✅ `test_confidence_calculation` — ensures coverage × support × validity works
+
+#### Fallback Tests
+- ✅ `test_low_confidence_triggers_fallback` — confirms fallback search is called when needed
+- ✅ `test_fallback_merges_context` — verifies results are deduplicated
+
+#### Abstention Tests
+- ✅ `test_abstain_when_below_threshold` — checks "I don't know" is returned when appropriate
+- ✅ `test_abstention_has_no_citations` — confirms abstained answers don't cite sources
+
+#### Error Handling Tests
+- ✅ `test_retriever_error_triggers_fallback` — retriever failure → search
+- ✅ `test_search_error_triggers_abstention` — search failure → "I don't know"
+- ✅ `test_llm_error_propagates` — model errors bubble up to caller
+
+### Type Checking (TypeScript only)
+
+```bash
+npm install --prefix .                      # Install @types/node
+npx tsc --strict --noImplicitOverride --noUncheckedIndexedAccess --erasableSyntaxOnly --verbatimModuleSyntax
+```
+
+**Output:** no errors if type-check passes, or error lines with line numbers if there are type issues.
+
+### Linting and Formatting
+
+From the parent directory:
+
+```bash
+cd ..
+uv run ruff check 18-rag-citation-agent/          # Check for style issues
+uv run black --check 18-rag-citation-agent/       # Check formatting
+uv run black 18-rag-citation-agent/               # Auto-fix formatting
+```
+
+**Output:**
+```
+All checks passed!                           # Good ✅
+error: Found 3 formatting issues             # Need to run black
+```
+
+### Running the Test Suites (16 tests total)
+
+Both Python and TypeScript test the same 16 rules. Run one or both:
+
+**Python tests with coverage:**
+```bash
+uv run pytest -v --cov=src --cov-report=term
+```
+
+**TypeScript tests:**
+```bash
+node --test tests/agent.test.ts
+```
+
+**All checks (format, lint, type, test):**
+```bash
+# From parent directory
+uv run black --check 18-rag-citation-agent/       # Formatting
+uv run ruff check 18-rag-citation-agent/          # Linting
+cd 18-rag-citation-agent
+uv run pytest -v                                   # Tests
+node --test tests/agent.test.ts                   # TypeScript tests
+```
 
 ### Type Checking (TypeScript only)
 
