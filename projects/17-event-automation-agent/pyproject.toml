@@ -1,0 +1,22 @@
+[project]
+name = "event-automation-agent"
+version = "0.1.0"
+description = "Event-triggered SOC automation skeleton: idempotent, retrying, dead-lettering."
+authors = [{ name = "Ash", email = "AshraHossain@users.noreply.github.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
