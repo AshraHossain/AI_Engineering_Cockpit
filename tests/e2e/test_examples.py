@@ -18,10 +18,12 @@ PROJECTS_DIR = REPO_ROOT / "projects"
 
 
 def _discover_project_dirs() -> list[Path]:
-    """Return all currently-present projects/0*-*/ directories, sorted by name."""
+    """Return all currently-present projects/NN-*/ directories, sorted by name."""
     if not PROJECTS_DIR.is_dir():
         return []
-    return sorted((p for p in PROJECTS_DIR.glob("0*-*") if p.is_dir()), key=lambda p: p.name)
+    return sorted(
+        (p for p in PROJECTS_DIR.glob("[0-9][0-9]-*") if p.is_dir()), key=lambda p: p.name
+    )
 
 
 PROJECT_DIRS: list[Path] = _discover_project_dirs()
@@ -56,3 +58,9 @@ def test_at_least_one_project_discovered() -> None:
     if not PROJECT_DIRS:
         pytest.skip("No projects/0*-*/ directories found yet")
     assert len(PROJECT_DIRS) >= 1
+
+
+def test_two_digit_projects_are_discovered() -> None:
+    """Discovery once matched only 0*-*, silently skipping projects 10 and up."""
+    names = {p.name for p in PROJECT_DIRS}
+    assert {"10-batch-pipeline", "14-threat-monitor"} <= names

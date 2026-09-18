@@ -34,6 +34,9 @@ _logger = get_logger(__name__)
 # Sources:
 #   https://ai.google.dev/gemini-api/docs/pricing
 #   https://developers.openai.com/api/docs/pricing
+#   https://platform.claude.com/docs/en/about-claude/pricing (Anthropic
+#   entries added and verified 2026-09-17; the rest of the table was not
+#   re-checked then, so PRICING_VERIFIED_DATE still describes them)
 PRICING_VERIFIED_DATE = "2026-08-03"
 
 
@@ -72,6 +75,9 @@ DEFAULT_PRICING: dict[str, ModelPricing] = {
     "o3": ModelPricing(2.00, 8.00, "openai"),
     "o3-mini": ModelPricing(1.10, 4.40, "openai"),
     "gpt-3.5-turbo": ModelPricing(0.50, 1.50, "openai"),
+    # --- Anthropic ---
+    "claude-opus-5": ModelPricing(5.00, 25.00, "anthropic"),
+    "claude-sonnet-5": ModelPricing(2.00, 10.00, "anthropic"),
 }
 
 _TOKENS_PER_PRICING_UNIT = 1_000_000

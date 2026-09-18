@@ -110,6 +110,13 @@ class TestEstimateCost:
     def test_input_only_ignores_the_output_rate(self) -> None:
         assert estimate_cost("gpt-4o", 1_000_000, 0) == pytest.approx(2.50)
 
+    @pytest.mark.parametrize(
+        ("model", "input_rate", "output_rate"),
+        [("claude-opus-5", 5.00, 25.00), ("claude-sonnet-5", 2.00, 10.00)],
+    )
+    def test_prices_claude_models(self, model: str, input_rate: float, output_rate: float) -> None:
+        assert estimate_cost(model, 1_000_000, 1_000_000) == pytest.approx(input_rate + output_rate)
+
     def test_output_only_ignores_the_input_rate(self) -> None:
         assert estimate_cost("gpt-4o", 0, 1_000_000) == pytest.approx(10.00)
 
