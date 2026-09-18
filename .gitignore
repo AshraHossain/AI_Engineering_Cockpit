@@ -57,3 +57,15 @@ graphify-out/cache/
 graphify-out/manifest.json
 graphify-out/cost.json
 graphify-out/.graphify_*
+
+# ruflo (claude-flow) init output in 01-hello-world: agent tooling config and
+# runtime state (swarm memory, vector DB). Local to whoever ran it, not part of
+# the example project.
+/projects/01-hello-world/.agents/
+/projects/01-hello-world/.claude-flow/
+/projects/01-hello-world/.claude/
+/projects/01-hello-world/.swarm/
+/projects/01-hello-world/.gitignore
+/projects/01-hello-world/.mcp.json
+/projects/01-hello-world/CLAUDE.md
+/projects/01-hello-world/ruvector.db
