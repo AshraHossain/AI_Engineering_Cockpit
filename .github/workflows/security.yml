@@ -56,7 +56,9 @@ jobs:
         # scan already covers, plus public hashes (a commit SHA, a CDN integrity
         # hash) that trip the entropy detectors. It is rewritten on each rebuild,
         # so inline pragmas or a baseline would not survive there.
-        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/' > /tmp/secrets-scan.json
+        # .detectsecrets is the baseline file: it contains known/audited "secrets"
+        # and should not be scanned against itself.
+        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/|\.detectsecrets' > /tmp/secrets-scan.json
 
       - name: Fail if new secrets are found
         run: |
