@@ -236,3 +236,45 @@ def test_retry_delay_is_jittered_within_the_capped_ceiling() -> None:
     for attempt in range(1, 10):
         ceiling = min(5.0, 2 ** (attempt - 1))
         assert all(0.0 <= policy.delay_for(attempt) <= ceiling for _ in range(50))
+
+
+def test_broken_trigger_rule_is_logged_and_skipped() -> None:
+    """A rule that raises is logged and skipped; other rules still fire."""
+    def broken_match(e: Event) -> bool:
+        raise ValueError("rule is broken")
+
+    rules = [
+        TriggerRule("broken", broken_match, ("enrich",)),
+        TriggerRule("high-severity", lambda e: e.payload.get("severity") == "high", ("enrich",)),
+    ]
+    
+    evaluator = TriggerEvaluator(rules)
+    names = evaluator.evaluate(alert("A-1", severity="high"))
+    assert "enrich" in names
+
+
+def test_unregistered_workflow_dead_letters() -> None:
+    """A rule that names a missing workflow dead-letters the event."""
+    rules = [TriggerRule("test", lambda e: True, ("missing_workflow",))]
+    
+    source = ListSource([alert("A-1")])
+    metrics = LoggingMetrics()
+    dlq = InMemoryDeadLetterQueue()
+    workflows = {w.name: w for w in (Enrich(), Flaky(), Quarantine())}
+    executor = WorkflowExecutor(workflows.values(), FAST_RETRY, dlq, metrics)
+    
+    agent = AutomationAgent(
+        source,
+        TriggerEvaluator(rules),
+        executor,
+        InMemoryIdempotencyStore(),
+        metrics,
+        max_concurrency=1,
+    )
+    asyncio.run(agent.run())
+
+    assert len(dlq.letters) == 1
+    assert dlq.letters[0].workflow == "missing_workflow"
+    assert "not registered" in dlq.letters[0].error
+    assert source.acked == ["A-1"]
+

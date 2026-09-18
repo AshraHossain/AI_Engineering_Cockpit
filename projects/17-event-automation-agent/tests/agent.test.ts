@@ -256,3 +256,27 @@ test('retry delay is jittered within the capped ceiling', () => {
     }
   }
 });
+test('broken trigger rule is logged and skipped', async () => {
+  const rules: TriggerRule[] = [
+    { name: 'broken', matches: () => { throw new Error('rule is broken'); }, workflows: ['enrich'] },
+    { name: 'high-severity', matches: (e) => e.payload.severity === 'high', workflows: ['enrich'] },
+  ];
+  const evaluator = new TriggerEvaluator(rules);
+  const names = evaluator.evaluate(alert('A-1'));
+  assert.ok(names.includes('enrich'));
+});
+
+test('unregistered workflow dead-letters', async () => {
+  const rules: TriggerRule[] = [{ name: 'test', matches: () => true, workflows: ['missing'] }];
+  const source = new ListSource([alert('A-1')]);
+  const metrics = new ConsoleMetrics();
+  const dlq = new InMemoryDeadLetterQueue();
+  const executor = new WorkflowExecutor([new Enrich(), new Flaky(), new Quarantine()], new RetryPolicy({ maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 10 }), dlq, metrics);
+  const agent = new AutomationAgent(source, new TriggerEvaluator(rules), executor, new InMemoryIdempotencyStore(), metrics, { maxConcurrency: 1 });
+  await agent.run();
+  assert.equal(dlq.letters.length, 1);
+  assert.equal(dlq.letters[0]?.workflow, 'missing');
+  assert.ok(dlq.letters[0]?.error.includes('not registered'));
+  assert.deepEqual(source.acked, ['A-1']);
+});
+
