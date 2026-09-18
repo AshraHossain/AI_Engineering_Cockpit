@@ -10,14 +10,27 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import Tracer
 
 from agent import RunRecord
 from fake_model import FakeClock
+from tracing import build_tracer_provider
 
 
 @pytest.fixture
 def clock() -> FakeClock:
     return FakeClock()
+
+
+@pytest.fixture
+def exporter() -> InMemorySpanExporter:
+    return InMemorySpanExporter()
+
+
+@pytest.fixture
+def tracer(exporter: InMemorySpanExporter) -> Tracer:
+    return build_tracer_provider(exporter, batch=False).get_tracer("tests")
 
 
 @pytest.fixture
