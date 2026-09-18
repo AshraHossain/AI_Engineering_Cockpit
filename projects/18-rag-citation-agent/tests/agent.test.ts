@@ -143,7 +143,7 @@ test('confidence is coverage x support x validity', () => {
 
 test('abstentions and uncited answers score zero', () => {
   const context = [item(1)];
-  assert.equal(score('I don’t know.', context), 0);
+  assert.equal(score('I don\u2019t know.', context), 0);
   assert.equal(score("I don't know [1].", context), 0);
   assert.equal(score('Keys rotate every 90 days.', context), 0);
 });

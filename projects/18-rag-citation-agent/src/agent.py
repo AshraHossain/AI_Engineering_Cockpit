@@ -250,12 +250,12 @@ class CitationGrounder:
 
 
 def _is_abstention(text: str) -> bool:
-    bare = _MARKER.sub("", text).replace("’", "'")
+    bare = _MARKER.sub("", text).replace("\u2019", "'")
     return _TRAILING_PUNCT.sub("", bare).strip().lower() == "i don't know"
 
 
 class ConfidenceScorer:
-    """`coverage × support × validity`: structural grounding, not entailment.
+    """`coverage x support x validity`: structural grounding, not entailment.
 
     coverage: share of sentences with at least one valid citation
     support:  mean retrieval score of the distinct cited sources
@@ -316,7 +316,9 @@ class LoggingMetrics:
 # --------------------------------------------------------------------------- #
 
 
-def merge_context(primary: Sequence[ContextItem], extra: Sequence[ContextItem]) -> list[ContextItem]:
+def merge_context(
+    primary: Sequence[ContextItem], extra: Sequence[ContextItem]
+) -> list[ContextItem]:
     """Primary items first, then extra items whose `source_uri` is new."""
     seen = {item.source_uri for item in primary}
     merged = list(primary)

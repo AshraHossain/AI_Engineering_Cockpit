@@ -225,12 +225,12 @@ export class CitationGrounder {
 }
 
 function isAbstention(text: string): boolean {
-  const bare = text.replace(MARKER, '').replace(/’/g, "'");
+  const bare = text.replace(MARKER, '').replace(/\u2019/g, "'");
   return bare.replace(TRAILING_PUNCT, '').trim().toLowerCase() === "i don't know";
 }
 
 /**
- * `coverage × support × validity`: structural grounding, not entailment.
+ * `coverage x support x validity`: structural grounding, not entailment.
  *
  * - coverage: share of sentences with at least one valid citation
  * - support: mean retrieval score of the distinct cited sources

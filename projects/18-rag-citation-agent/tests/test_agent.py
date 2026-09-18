@@ -9,7 +9,6 @@ import asyncio
 import math
 
 import pytest
-
 from agent import (
     ABSTAIN_TEXT,
     LLM,
@@ -86,7 +85,7 @@ def test_confidence_is_coverage_times_support_times_validity() -> None:
 
 def test_abstentions_and_uncited_answers_score_zero() -> None:
     context = [item(1)]
-    assert score("I don’t know.", context) == 0.0
+    assert score("I don\u2019t know.", context) == 0.0
     assert score("I don't know [1].", context) == 0.0
     assert score("Keys rotate every 90 days.", context) == 0.0
 
@@ -95,7 +94,9 @@ def test_abstentions_and_uncited_answers_score_zero() -> None:
 
 
 class StaticRetriever(Retriever):
-    def __init__(self, items: list[ContextItem] | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self, items: list[ContextItem] | None = None, error: Exception | None = None
+    ) -> None:
         self.items = items or []
         self.error = error
 
@@ -106,7 +107,9 @@ class StaticRetriever(Retriever):
 
 
 class StaticSearch(SearchFallback):
-    def __init__(self, items: list[ContextItem] | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self, items: list[ContextItem] | None = None, error: Exception | None = None
+    ) -> None:
         self.items = items or []
         self.error = error
         self.calls = 0
