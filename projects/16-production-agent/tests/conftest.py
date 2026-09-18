@@ -12,6 +12,12 @@ from typing import Any
 import pytest
 
 from agent import RunRecord
+from fake_model import FakeClock
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
 
 
 @pytest.fixture
