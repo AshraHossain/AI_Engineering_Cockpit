@@ -2,7 +2,7 @@
 
 A **production-grade AIDevOps platform**: a modular framework for testing,
 evaluating, red-teaming, securing, monitoring, and governing AI systems —
-plus a set of 14 runnable example projects that demonstrate each framework
+plus a set of 15 runnable example projects that demonstrate each framework
 in real-world scenarios.
 
 **Platform:** Windows, Mac (Intel & Apple Silicon), Linux (Ubuntu/Debian/Fedora/Arch/Alpine)  
@@ -118,8 +118,9 @@ cockpit/              Shared framework: testing, evaluation, red_teaming,
                       security, monitoring, governance, config, utils.
                       See docs/ARCHITECTURE.md.
 
-projects/             14 standalone example projects (01-hello-world through
-                      14-threat-monitor). Each has its own pyproject.toml.
+projects/             15 standalone example projects (01-hello-world through
+                      16-production-agent; 15 is ORION, its own repository).
+                      Each has its own pyproject.toml.
 
 models/               Model registry + Ollama/Hugging Face reference material.
 
@@ -138,9 +139,9 @@ tests/                Root-level tests covering cockpit/config/* and repo struct
 
 ---
 
-## 📚 The 14 Example Projects
+## 📚 The 15 Example Projects
 
-Projects 01-05 are standalone. Projects 06-14 import `cockpit/` frameworks.
+Projects 01-05 are standalone. Projects 06-14 and 16 import `cockpit/` frameworks.
 
 | # | Name | Demonstrates |
 |---|---|---|
@@ -158,8 +159,9 @@ Projects 01-05 are standalone. Projects 06-14 import `cockpit/` frameworks.
 | 12 | [governed-deployment](projects/12-governed-deployment) | Model promotion gated by N-of-M approvals |
 | 13 | [compliance-report](projects/13-compliance-report) | GDPR/HIPAA/SOX findings with evidence |
 | 14 | [threat-monitor](projects/14-threat-monitor) | Brute force, exfiltration, privilege-escalation detection |
+| 16 | [production-agent](projects/16-production-agent) | Claude agent traced in Phoenix, loop/failure alerts, canary with approval-gated promotion and automatic rollback |
 
-Every project runs offline tests with no API key. Projects 06-14 support `--dry-run` to see them work before adding credentials.
+Every project runs offline tests with no API key. Projects 06-14 and 16 support `--dry-run` to see them work before adding credentials.
 
 ---
 
