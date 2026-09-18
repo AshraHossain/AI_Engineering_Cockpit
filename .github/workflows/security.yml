@@ -52,7 +52,11 @@ jobs:
         run: uv python install 3.11
 
       - name: Scan for committed secrets
-        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock' > /tmp/secrets-scan.json
+        # graphify-out/ is generated: every string in it is copied from files this
+        # scan already covers, plus public hashes (a commit SHA, a CDN integrity
+        # hash) that trip the entropy detectors. It is rewritten on each rebuild,
+        # so inline pragmas or a baseline would not survive there.
+        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/' > /tmp/secrets-scan.json
 
       - name: Fail if new secrets are found
         run: |
