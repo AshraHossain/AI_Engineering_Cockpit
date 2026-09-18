@@ -1615,7 +1615,16 @@ Expected: `# pass 16`, `# fail 0`.
 
 - [ ] **Step 6: Type-check strictly** (same flags PR #10 used)
 
-Run: `cd projects/18-rag-citation-agent && npx -y -p typescript -p @types/node tsc --noEmit --strict --noImplicitOverride --noUncheckedIndexedAccess --erasableSyntaxOnly --verbatimModuleSyntax --allowImportingTsExtensions --module nodenext --target es2023 --types node src/agent.ts tests/agent.test.ts`
+Install the checker outside the project, then point `tsc` at its types (`npx -p` alone fails with TS2688, because `@types/node` lands where the project can't see it):
+
+```bash
+T=$(mktemp -d) && npm i --prefix "$T" -s --no-audit --no-fund typescript @types/node
+cd projects/18-rag-citation-agent && "$T/node_modules/.bin/tsc" --noEmit --strict --noImplicitOverride \
+  --noUncheckedIndexedAccess --erasableSyntaxOnly --verbatimModuleSyntax --allowImportingTsExtensions \
+  --module nodenext --target es2023 --typeRoots "$T/node_modules/@types" --types node \
+  src/agent.ts tests/agent.test.ts
+```
+
 Expected: no output, exit 0. (Dev-only check; nothing is added to `package.json`.)
 
 - [ ] **Step 7: Commit**
