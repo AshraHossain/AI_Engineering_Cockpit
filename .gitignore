@@ -53,10 +53,10 @@ outputs/*
 
 # graphify: commit the graph and report (rebuilding costs ~400k tokens);
 # keep the extraction cache and run bookkeeping local.
-graphify-out/cache/
-graphify-out/manifest.json
-graphify-out/cost.json
-graphify-out/.graphify_*
+**/graphify-out/cache/
+**/graphify-out/manifest.json
+**/graphify-out/cost.json
+**/graphify-out/.graphify_*
 
 # ruflo (claude-flow) init output in 01-hello-world: agent tooling config and
 # runtime state (swarm memory, vector DB). Local to whoever ran it, not part of
@@ -69,3 +69,8 @@ graphify-out/.graphify_*
 /projects/01-hello-world/.mcp.json
 /projects/01-hello-world/CLAUDE.md
 /projects/01-hello-world/ruvector.db
+
+# Standalone repo: projects/human_in_loop_approval_agent has its own .git and
+# publishes to github.com/AshraHossain/human_in_loop_approval_agent.
+# Tracked there, not here -- do not re-add it to the cockpit.
+projects/human_in_loop_approval_agent/
