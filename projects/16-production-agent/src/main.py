@@ -9,6 +9,9 @@ Examples:
 
     # Real Claude calls. Spends money: see README before raising --requests.
     uv run python src/main.py --requests 60 --canary-percent 50 --phoenix
+
+    # Same, against your own support API (SUPPORT_API_URL in .env) and questions.
+    uv run python src/main.py --requests 60 --canary-percent 50 --questions questions.txt
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 import argparse
 import logging
+import os
 import time
 from collections.abc import Callable, Sequence
 
@@ -52,7 +56,7 @@ from canary import (
 )
 from fake_model import FakeClock, scripted_client
 from scenarios import SCENARIOS
-from tools import SAMPLE_QUESTIONS
+from tools import SAMPLE_QUESTIONS, SupportAPI, use_support_api
 from tracing import build_tracer_provider, phoenix_exporter
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -105,6 +109,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=DEFAULT_CANARY_PERCENT,
         help="live mode: share routed to the canary",
     )
+    parser.add_argument(
+        "--questions",
+        type=Path,
+        help="live mode: file of customer questions, one per line (default: built-in samples)",
+    )
     parser.add_argument("--phoenix", action="store_true", help="export traces to a local Phoenix")
     args = parser.parse_args(argv)
     if args.dry_run != (args.scenario is not None):
@@ -113,6 +122,14 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         parser.error("--canary-percent must be between 0 and 100")
     if args.requests < 1:
         parser.error("--requests must be at least 1")
+    if args.questions is not None:
+        try:
+            lines = args.questions.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            parser.error(f"--questions: cannot read {args.questions}: {exc.strerror}")
+        args.questions = [line.strip() for line in lines if line.strip()]
+        if not args.questions:
+            parser.error("--questions: the file has no questions")
     return args
 
 
@@ -147,8 +164,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         clock = time.time
         client = anthropic.Anthropic(api_key=api_key)
+        support_url = os.environ.get("SUPPORT_API_URL")
+        if support_url:
+            use_support_api(SupportAPI(support_url, get_secret("SUPPORT_API_TOKEN")))
+            print(f"Tools: support API at {support_url}")
+            if args.questions is None:
+                print(
+                    "warning: the built-in questions name sample orders your support API "
+                    "won't know, so every lookup will fail. Pass --questions.",
+                    file=sys.stderr,
+                )
+        else:
+            print("Tools: built-in sample data")
+        questions = args.questions or SAMPLE_QUESTIONS
         requests = [
-            (f"req-{n:04d}", SAMPLE_QUESTIONS[(n - 1) % len(SAMPLE_QUESTIONS)])
+            (f"req-{n:04d}", questions[(n - 1) % len(questions)])
             for n in range(1, args.requests + 1)
         ]
         approve = prompt_approvals

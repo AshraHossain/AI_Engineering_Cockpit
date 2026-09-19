@@ -13,7 +13,9 @@ import pytest
 from cockpit.governance.approval_workflow import ApprovalStatus, ApprovalWorkflow
 
 import main
-from fake_model import FakeClock, ModelProfile, scripted_client
+import tools
+from fake_model import FakeClock, ModelProfile, Turn, scripted_client, text
+from tools import SupportAPI
 
 
 @pytest.fixture(autouse=True)
@@ -77,6 +79,47 @@ def test_a_rejected_key_stops_the_run(
     monkeypatch.setattr(main.anthropic, "Anthropic", lambda api_key: fake)
     assert main.main(["--requests", "1"]) == 2
     assert "Authentication failed: the API key was rejected" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("content", [None, "\n  \n"], ids=["missing-file", "no-questions"])
+def test_an_unusable_questions_file_exits_with_usage(tmp_path: Path, content: str | None) -> None:
+    path = tmp_path / "questions.txt"
+    if content is not None:
+        path.write_text(content)
+    with pytest.raises(SystemExit) as exc:
+        main.main(["--questions", str(path)])
+    assert exc.value.code == 2
+
+
+def test_live_mode_asks_your_questions_against_your_support_api(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asked: list[str] = []
+
+    def answer(messages: list[dict[str, Any]]) -> Turn:
+        asked.append(messages[0]["content"])
+        return Turn([text("On its way.")])
+
+    secrets = {
+        "ANTHROPIC_API_KEY": "sk-test",  # pragma: allowlist secret
+        "SUPPORT_API_TOKEN": "t0ken",  # pragma: allowlist secret
+    }
+    monkeypatch.setattr(main, "get_secret", lambda key, default=None: secrets.get(key, default))
+    monkeypatch.setenv("SUPPORT_API_URL", "https://support.example.test/v1")
+    fake = scripted_client(
+        {"claude-opus-5": ModelProfile(answer), "claude-sonnet-5": ModelProfile(answer)},
+        FakeClock(),
+    )
+    monkeypatch.setattr(main.anthropic, "Anthropic", lambda api_key: fake)
+    questions = tmp_path / "questions.txt"
+    questions.write_text("Where is ORD-1?\n\nCan I return ORD-2?\n")
+
+    assert main.main(["--requests", "3", "--questions", str(questions)]) == 0
+    assert asked == ["Where is ORD-1?", "Can I return ORD-2?", "Where is ORD-1?"]
+    assert tools._support_api == SupportAPI("https://support.example.test/v1", "t0ken")
+    captured = capsys.readouterr()
+    assert "Tools: support API at https://support.example.test/v1" in captured.out
+    assert "warning" not in captured.err
 
 
 def _answers(monkeypatch: pytest.MonkeyPatch, *replies: str) -> None:
