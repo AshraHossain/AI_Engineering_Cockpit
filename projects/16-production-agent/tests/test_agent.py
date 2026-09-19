@@ -287,7 +287,7 @@ def _capture_request(version: AgentVersion, clock: FakeClock, tracer: Tracer) ->
         )
 
     client = anthropic.Anthropic(
-        api_key="test",
+        api_key="test",  # pragma: allowlist secret
         max_retries=0,
         http_client=httpx2.Client(transport=httpx2.MockTransport(handle)),
     )
