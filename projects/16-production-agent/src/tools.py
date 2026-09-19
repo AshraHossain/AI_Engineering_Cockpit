@@ -14,8 +14,8 @@ does this when ``SUPPORT_API_URL`` is set. The service must answer::
     GET {base}/refund-policies/{category} -> {"policy"}
 
 with 404 for an unknown ID. Only those fields reach the model. Timeouts,
-connection errors, 429 and 5xx are retried; a lookup that still fails raises a
-``ToolError`` saying the service is unavailable.
+connection errors, 429 and 5xx are retried; a lookup that still fails, or that
+the service rejects or answers off-contract, raises :class:`ServiceError`.
 
 Tools raise the SDK's ``ToolError`` on bad input. The Tool Runner turns that
 into an ``is_error`` tool result the model can recover from.
@@ -35,6 +35,16 @@ import httpx2
 from anthropic.lib.tools import ToolError
 
 _logger = logging.getLogger(__name__)
+
+
+class ServiceError(ToolError):
+    """The support service failed, not the call: down, rejecting us, or off-contract.
+
+    The Tool Runner reports it to the model like any ``ToolError``. The run
+    loop counts it apart from bad input, so an outage is not blamed on the
+    model version that happened to be serving.
+    """
+
 
 ORDERS: Final[dict[str, dict[str, str | None]]] = {
     "ORD-10042": {
@@ -158,12 +168,12 @@ def _fetch(api: SupportAPI, resource: str, key: str) -> dict[str, Any] | None:
                 _logger.error(
                     "%s service rejected %s: HTTP %d", resource, path, response.status_code
                 )
-                raise ToolError(
+                raise ServiceError(
                     f"The {resource} service rejected the request (HTTP {response.status_code})."
                 )
             return _contract_fields(resource, response)
     _logger.warning("%s lookup %s failed after %d attempts: %s", resource, path, ATTEMPTS, problem)
-    raise ToolError(f"The {resource} service is unavailable right now ({problem}).")
+    raise ServiceError(f"The {resource} service is unavailable right now ({problem}).")
 
 
 def _contract_fields(resource: str, response: httpx2.Response) -> dict[str, Any]:
@@ -178,7 +188,7 @@ def _contract_fields(resource: str, response: httpx2.Response) -> dict[str, Any]
         # Log the shape only: a support API's payload can carry customer data.
         shape = sorted(body) if isinstance(body, dict) else type(body).__name__
         _logger.error("%s service returned an unexpected body: %s", resource, shape)
-        raise ToolError(f"The {resource} service returned an unexpected response.")
+        raise ServiceError(f"The {resource} service returned an unexpected response.")
     return {field: body[field] for field in fields}
 
 
