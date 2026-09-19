@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from typing import Any
 
+import httpx2
 import pytest
 from cockpit.governance.approval_workflow import ApprovalRequest, ApprovalWorkflow
 from cockpit.governance.audit_trail import verify_trail_integrity
 from cockpit.governance.model_versioning import ModelRegistry, ModelStage
+from cockpit.monitoring.cost_tracking import CostTracker
 from cockpit.monitoring.performance_metrics import PerformanceTracker
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode, Tracer
 
-from agent import CANARY, STABLE, AgentVersion, RunRecord
+import tools
+from agent import CANARY, STABLE, AgentVersion, RunRecord, run_agent
 from alerts import AlertMonitor, WindowStats
 from canary import (
     MODEL_NAME,
@@ -26,7 +30,8 @@ from canary import (
     register_versions,
     route,
 )
-from fake_model import FakeClock
+from fake_model import FakeClock, ModelProfile, scripted_client
+from scenarios import support_policy
 
 
 def stats(runs: int = 20, **overrides: Any) -> WindowStats:
@@ -102,6 +107,17 @@ def test_judge(
     canary: WindowStats, stable: WindowStats, total: int, firing: set[str], verdict: Verdict
 ) -> None:
     assert judge(canary, stable, canary_total=total, canary_firing=firing).verdict is verdict
+
+
+def test_a_held_canary_waits_instead_of_becoming_ready() -> None:
+    verdict, reason = judge(
+        stats(),
+        stats(),
+        canary_total=READY_AFTER,
+        canary_firing=set(),
+        canary_held={"service_error_rate"},
+    )
+    assert (verdict, reason) == (Verdict.CONTINUE, "ready but holding: service_error_rate")
 
 
 def test_an_abort_says_why() -> None:
@@ -333,3 +349,87 @@ def test_run_latency_is_recorded_per_version(clock: FakeClock, tracer: Tracer) -
     ctl = controller(clock, tracer, FakeRuns(clock), percent=10)
     serve(ctl, 20)
     assert ctl.perf.call_count("agent.run[v1]") + ctl.perf.call_count("agent.run[v2]") == 20
+
+
+# ---------------------------------------------------------------- support API outage
+
+
+def _outage_controller(
+    clock: FakeClock, tracer: Tracer, monkeypatch: pytest.MonkeyPatch
+) -> RolloutController:
+    """Real run loop and tools, a support API that answers 503, every request to the canary."""
+    monkeypatch.setattr(tools, "BACKOFF_S", 0)
+    tools.use_support_api(
+        tools.SupportAPI(
+            "https://support.example.test/v1",
+            transport=httpx2.MockTransport(lambda request: httpx2.Response(503)),
+        )
+    )
+    client = scripted_client(
+        {
+            model: ModelProfile(support_policy(), latency_s=1.0)
+            for model in ("claude-opus-5", "claude-sonnet-5")
+        },
+        clock,
+    )
+
+    def run(version: AgentVersion, question: str, request_id: str, group: str) -> RunRecord:
+        return run_agent(
+            client,
+            version,
+            question,
+            request_id=request_id,
+            group=group,
+            tracer=tracer,
+            perf=PerformanceTracker(clock=clock),
+            costs=CostTracker(),
+            clock=clock,
+        )
+
+    registry = ModelRegistry()
+    register_versions(registry, STABLE, CANARY)
+    return RolloutController(
+        registry=registry,
+        workflow=ApprovalWorkflow(),
+        stable=STABLE,
+        canary=CANARY,
+        run=run,
+        approve=APPROVED,
+        tracer=tracer,
+        monitor=AlertMonitor(),
+        perf=PerformanceTracker(clock=clock),
+        clock=clock,
+        canary_percent=100,
+    )
+
+
+def test_an_outage_neither_aborts_nor_promotes_the_canary_until_it_ends(
+    clock: FakeClock, tracer: Tracer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctl = _outage_controller(clock, tracer, monkeypatch)
+    serve(ctl, READY_AFTER + 5)
+    assert ctl.monitor.firing("v2") == {"service_error_rate"}
+    assert (ctl.phase, stage(ctl, "v2")) == (Phase.CANARY, ModelStage.STAGING)
+
+    tools.use_support_api(None)  # the service recovers
+    serve(ctl, 20, start=READY_AFTER + 6)
+    assert ctl.monitor.firing("v2") == set()
+    assert (ctl.phase, stage(ctl, "v2")) == (Phase.WATCH, ModelStage.PRODUCTION)
+
+
+def test_an_outage_during_the_watch_neither_rolls_back_nor_passes_it(
+    clock: FakeClock, tracer: Tracer
+) -> None:
+    runs = FakeRuns(clock)
+    ctl = controller(clock, tracer, runs)
+    serve(ctl, READY_AFTER)
+    assert ctl.phase is Phase.WATCH
+
+    def outage(version: AgentVersion, question: str, request_id: str, group: str) -> RunRecord:
+        record = runs(version, question, request_id, group)  # every tool call fails at the service
+        return dataclasses.replace(record, service_errors=record.tool_calls)
+
+    ctl.run = outage
+    serve(ctl, WATCH_RUNS + 5, start=READY_AFTER + 1)
+    assert ctl.monitor.blaming("v2") == set()
+    assert (ctl.phase, stage(ctl, "v2")) == (Phase.WATCH, ModelStage.PRODUCTION)

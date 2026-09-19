@@ -11,6 +11,11 @@ The phases run ``CANARY -> (WATCH) -> DONE``:
   runs. Its first alert rolls production back automatically, with no
   approval, the same as project 12: a rollback has to work at 3am.
 
+Only alerts that blame the version (``AlertRule.blames_version``) abort or roll
+back. A support-API outage fires ``service_error_rate`` instead. That alert
+never aborts, but while it fires, the canary is not declared ready and the
+watch does not pass: runs during an outage are no evidence either way.
+
 Every stage change goes through the cockpit ``ModelRegistry`` and every
 approval through ``ApprovalWorkflow``, so both land on the governance trail.
 """
@@ -86,6 +91,7 @@ def judge(
     *,
     canary_total: int,
     canary_firing: Collection[str],
+    canary_held: Collection[str] = (),
 ) -> Judgement:
     """Decide whether the canary continues, is aborted, or is ready to promote.
 
@@ -93,7 +99,10 @@ def judge(
         canary: The canary version's window stats.
         stable: The stable version's window stats.
         canary_total: Canary runs so far, across the whole rollout.
-        canary_firing: Alert rules currently firing for the canary.
+        canary_firing: Alert rules currently firing that blame the canary.
+        canary_held: Alert rules currently firing that don't blame it, such as
+            a support-API outage. They never abort; they keep a ready canary
+            waiting until they resolve.
 
     Returns:
         The judgement. Ratio checks are skipped when the stable value is 0.
@@ -118,6 +127,10 @@ def judge(
                 f"cost/run ${canary.mean_cost:.4f} vs stable ${stable.mean_cost:.4f}",
             )
     if canary_total >= READY_AFTER:
+        if canary_held:
+            return Judgement(
+                Verdict.CONTINUE, "ready but holding: " + ", ".join(sorted(canary_held))
+            )
         return Judgement(Verdict.READY, f"{canary_total} canary runs, within margins")
     return Judgement(Verdict.CONTINUE, "within margins")
 
@@ -287,7 +300,9 @@ class RolloutController:
                 self.window.stats(self.canary.version),
                 self.window.stats(self.stable.version),
                 canary_total=self._canary_total,
-                canary_firing=self.monitor.firing(self.canary.version),
+                canary_firing=self.monitor.blaming(self.canary.version),
+                canary_held=self.monitor.firing(self.canary.version)
+                - self.monitor.blaming(self.canary.version),
             )
             if verdict is Verdict.ABORT:
                 self._abort(record.request_id, reason, span)
@@ -295,10 +310,10 @@ class RolloutController:
                 self._seek_approval(record.request_id, reason, span)
         elif self.phase is Phase.WATCH:
             self._watch_runs += 1
-            firing = self.monitor.firing(self.canary.version)
-            if firing:
-                self._rollback(record.request_id, ", ".join(sorted(firing)), span)
-            elif self._watch_runs >= WATCH_RUNS:
+            blaming = self.monitor.blaming(self.canary.version)
+            if blaming:
+                self._rollback(record.request_id, ", ".join(sorted(blaming)), span)
+            elif self._watch_runs >= WATCH_RUNS and not self.monitor.firing(self.canary.version):
                 self.phase = Phase.DONE
                 self._note(
                     record.request_id, f"watch passed: {self.canary.version} stays in production"

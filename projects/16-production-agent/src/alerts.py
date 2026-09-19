@@ -77,9 +77,12 @@ class WindowStats:
         runs: Runs in the window.
         loops: Runs that ended with outcome ``loop``.
         failure_rate: Share of runs whose outcome is not ``ok``.
-        tool_error_rate: Tool errors divided by tool calls (0.0 with no calls).
+        tool_error_rate: Tool errors divided by the tool calls the service
+            answered, i.e. excluding service errors (0.0 with none).
         p95_s: 95th-percentile run duration, in seconds.
         mean_cost: Mean cost per run, in US dollars.
+        service_error_rate: Service errors divided by all tool calls (0.0
+            with no calls).
     """
 
     runs: int
@@ -88,6 +91,7 @@ class WindowStats:
     tool_error_rate: float
     p95_s: float
     mean_cost: float
+    service_error_rate: float = 0.0
 
     @classmethod
     def of(cls, records: Sequence[RunRecord]) -> WindowStats:
@@ -103,15 +107,17 @@ class WindowStats:
         if runs == 0:
             return cls(0, 0, 0.0, 0.0, 0.0, 0.0)
         tool_calls = sum(r.tool_calls for r in records)
+        service_errors = sum(r.service_errors for r in records)
+        # A call the service failed says nothing about the model's input.
+        answered = tool_calls - service_errors
         return cls(
             runs=runs,
             loops=sum(r.outcome == "loop" for r in records),
             failure_rate=sum(r.outcome != "ok" for r in records) / runs,
-            tool_error_rate=(
-                (sum(r.tool_errors for r in records) / tool_calls) if tool_calls else 0.0
-            ),
+            tool_error_rate=(sum(r.tool_errors for r in records) / answered) if answered else 0.0,
             p95_s=percentile([r.duration_s for r in records], 95),
             mean_cost=sum(r.cost_usd for r in records) / runs,
+            service_error_rate=(service_errors / tool_calls) if tool_calls else 0.0,
         )
 
 
@@ -159,12 +165,17 @@ class AlertRule:
         metric: Reads the value to compare from a :class:`WindowStats`.
         threshold: The rule is breached when the value is strictly above this.
         min_runs: Runs the window must hold before the rule can breach.
+        blames_version: Whether a breach says the version itself is bad, so
+            the rollout acts on it (abort, rollback). False for rules about
+            what the agent depends on: those notify, and hold decisions until
+            they resolve.
     """
 
     name: str
     metric: Callable[[WindowStats], float]
     threshold: float
     min_runs: int
+    blames_version: bool = True
 
     def breached(self, stats: WindowStats) -> bool:
         """Whether the rule is breached for these stats.
@@ -184,6 +195,7 @@ RULES: Final[tuple[AlertRule, ...]] = (
     AlertRule("tool_error_rate", lambda s: s.tool_error_rate, 0.30, 10),
     AlertRule("p95_latency", lambda s: s.p95_s, 30.0, 10),
     AlertRule("cost_per_run", lambda s: s.mean_cost, 0.15, 10),
+    AlertRule("service_error_rate", lambda s: s.service_error_rate, 0.20, 10, blames_version=False),
 )
 
 
@@ -225,6 +237,7 @@ class AlertMonitor:
         """
         self._sinks = tuple(sinks)
         self._rules = tuple(rules)
+        self._blaming = frozenset(rule.name for rule in rules if rule.blames_version)
         self._firing: set[tuple[str, str]] = set()
 
     def observe(
@@ -275,6 +288,17 @@ class AlertMonitor:
             Rule names; empty when none are firing.
         """
         return {rule for v, rule in self._firing if v == version}
+
+    def blaming(self, version: str) -> set[str]:
+        """Names of the rules firing for a version that blame the version itself.
+
+        Args:
+            version: Version identifier.
+
+        Returns:
+            The subset of :meth:`firing` whose rules have ``blames_version``.
+        """
+        return self.firing(version) & self._blaming
 
 
 def log_sink(event: AlertEvent) -> None:

@@ -201,3 +201,23 @@ def test_the_log_sink_warns(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
         log_sink(_event())
     assert "alert fired: tool_error_rate for v2" in caplog.text
+
+
+def test_service_errors_are_not_counted_as_the_models_tool_errors(
+    make_record: Callable[..., RunRecord],
+) -> None:
+    stats = WindowStats.of(
+        [
+            make_record(tool_calls=4, tool_errors=1, service_errors=2),
+            make_record(tool_calls=4, tool_errors=0, service_errors=0),
+        ]
+    )
+    assert stats.tool_error_rate == pytest.approx(1 / 6)
+    assert stats.service_error_rate == pytest.approx(2 / 8)
+
+
+def test_an_all_outage_window_has_no_tool_error_rate(
+    make_record: Callable[..., RunRecord],
+) -> None:
+    stats = WindowStats.of([make_record(tool_calls=1, tool_errors=0, service_errors=1)])
+    assert (stats.tool_error_rate, stats.service_error_rate) == (0.0, 1.0)

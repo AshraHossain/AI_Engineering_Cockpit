@@ -112,6 +112,11 @@ are compared on.
 | answers another 4xx (401, 403, 400) | fails at once without retrying, since this is a configuration problem, and logs an error | `The orders service rejected the request (HTTP 401).` |
 | answers 200 with a missing field, a wrong type, or no JSON at all | refuses the answer and logs the field names it got, never the values | `The shipments service returned an unexpected response.` |
 
+The last three rows are the service's failures, not the model's. They raise
+`tools.ServiceError`, which the run counts as a *service error*, apart from
+the model's own tool errors (a malformed or unknown ID). See
+[Outages](#outages-arent-blamed-on-the-model) for what that changes.
+
 The ID in the path comes from the model, so it is URL-encoded as a single path
 segment: `ORD-../admin` is requested as `/orders/ORD-..%2Fadmin`, not
 `/admin`.
@@ -170,20 +175,43 @@ can notice.
 | Tools | `src/tools.py` | Sample data by default; `use_support_api` switches to HTTP with retries and contract checks. Only `main.py` switches it, in live mode |
 | Tracing | `src/tracing.py`, `src/agent.py` | Spans created by hand with OpenInference attribute names; question and answer text pass through the cockpit's PII masking first |
 | Loop guard | `src/alerts.py` `LoopGuard` | Third identical tool call, or fifth call to one tool, stops the run before those tools execute; `max_iterations=8` is the backstop |
-| Alerts | `src/alerts.py` `AlertMonitor` | Five rules over the last 20 runs per version; fire once, resolve once; logged, appended to `outputs/alerts.jsonl`, and attached to the span |
-| Canary | `src/canary.py` | Hash routing, a judge comparing both versions, promotion through the cockpit `ModelRegistry` after two `ApprovalWorkflow` approvals, automatic rollback during a 30-run watch |
+| Alerts | `src/alerts.py` `AlertMonitor` | Six rules over the last 20 runs per version; fire once, resolve once; logged, appended to `outputs/alerts.jsonl`, and attached to the span. `blaming()` is the subset that says the version itself is bad |
+| Canary | `src/canary.py` | Hash routing, a judge comparing both versions, promotion through the cockpit `ModelRegistry` after two `ApprovalWorkflow` approvals, automatic rollback during a 30-run watch; acts only on alerts that blame the version, and holds while the others fire |
 | Dashboards | `cockpit.monitoring`, `alerts-dashboard.html` | Per-version run, model and tool latency plus cost at the end of every run; alert history in the browser |
 | Notifications | `src/slack_alerts.py` | New alert transitions to a Slack webhook, in order, each exactly once |
 
-The five alert rules:
+The six alert rules, each over one version's last 20 runs:
 
-| Rule | Fires when | Needs at least |
-| --- | --- | --- |
-| `loop_detected` | any run in the window ended in a loop | 1 run |
-| `failure_rate` | more than 20% of runs did not end `ok` | 10 runs |
-| `tool_error_rate` | more than 30% of tool calls raised | 10 runs |
-| `p95_latency` | 95th-percentile run time above 30s | 10 runs |
-| `cost_per_run` | mean cost above $0.15 | 10 runs |
+| Rule | Fires when | Needs at least | Aborts or rolls back? |
+| --- | --- | --- | --- |
+| `loop_detected` | any run in the window ended in a loop | 1 run | yes |
+| `failure_rate` | more than 20% of runs did not end `ok` | 10 runs | yes |
+| `tool_error_rate` | more than 30% of the tool calls the service answered were rejected as bad input | 10 runs | yes |
+| `p95_latency` | 95th-percentile run time above 30s | 10 runs | yes |
+| `cost_per_run` | mean cost above $0.15 | 10 runs | yes |
+| `service_error_rate` | more than 20% of tool calls failed at the support API | 10 runs | no: it holds the rollout |
+
+### Outages aren't blamed on the model
+
+A support-API outage fires `service_error_rate`, not `tool_error_rate`. That
+rule notifies like any other (log, `alerts.jsonl`, span event, Slack), but it
+doesn't say the version is bad, so the rollout treats it differently:
+
+- **It never aborts the canary or rolls it back.** Only the other five rules
+  do.
+- **It holds decisions until it resolves.** Runs made while the API is down
+  test neither version, so a canary that reaches 30 runs during an outage
+  waits instead of asking for approval, and a watch that reaches 30 runs keeps
+  watching. Once the API recovers and the rule resolves, the canary is judged
+  again: it becomes ready if its recent runs are within margins, or is
+  aborted if a real alert has fired.
+- **The model's own mistakes still count.** `tool_error_rate` leaves out calls
+  the service failed and counts only the ones it answered, so a model that
+  passes bad IDs is caught just as before (that is the `late-regression`
+  scenario).
+
+In Phoenix, a tool span that failed at the service carries
+`tool.error.source = service`.
 
 ## Design choices
 
@@ -204,11 +232,10 @@ The five alert rules:
 
 ## Known limitations
 
-- **A support-API outage counts against the model.** `tool_error_rate` does not
-  tell a tool the model misused apart from a service that was down. An outage
-  during the canary can abort a healthy canary, and one during the watch can
-  roll it back. The spans say which it was (look for `service is unavailable`
-  errors). Separating the two needs a second error kind and its own alert.
+- **Retrying a down service in a loop still counts against the model.** A
+  version that calls the same failing lookup three times trips the loop guard
+  like any other loop. That's deliberate: a well-behaved model tells the
+  customer the service is down instead of hammering it.
 - **The dashboard doesn't refresh itself.** Reload it.
 - **Each tool call opens its own HTTP connection.** A run makes only a few
   calls; share one client if tool latency starts to matter.
