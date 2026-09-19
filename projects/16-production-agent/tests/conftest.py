@@ -18,6 +18,7 @@ from opentelemetry.trace import Tracer
 
 from agent import RunRecord
 from fake_model import FakeClock
+from tools import use_support_api
 from tracing import build_tracer_provider
 
 
@@ -27,6 +28,13 @@ def _fresh_governance_trail() -> Iterator[None]:
     trail.reset()
     yield
     trail.reset()
+
+
+@pytest.fixture(autouse=True)
+def _sample_data_tools() -> Iterator[None]:
+    """Put the tools back on the sample data, so no test leaks a support API."""
+    yield
+    use_support_api(None)
 
 
 @pytest.fixture

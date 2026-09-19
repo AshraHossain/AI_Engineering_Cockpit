@@ -8,6 +8,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "anthropic>=1.6",
+    "httpx2>=2.13",
     "openinference-semantic-conventions>=0.1",
     "opentelemetry-exporter-otlp-proto-http>=1.27",
     "opentelemetry-sdk>=1.27",
@@ -30,8 +31,9 @@ testpaths = ["tests"]
 markers = ["live_provider: calls the real Anthropic API; skipped unless ANTHROPIC_API_KEY is set"]
 
 [tool.ruff.lint.per-file-ignores]
-# T201: src/main.py prints the CLI's actual output (dashboard, timeline and
-#   approval prompts), not diagnostics.
+# T201: src/main.py and src/slack_alerts.py print the CLI's actual output
+#   (dashboard, timeline, approval prompts, post counts), not diagnostics.
 # E402: src/main.py must put the repo root on sys.path *before* importing the
 #   modules that import `cockpit.*`, so those imports cannot sit at the top.
 "src/main.py" = ["T201", "E402"]
+"src/slack_alerts.py" = ["T201"]
