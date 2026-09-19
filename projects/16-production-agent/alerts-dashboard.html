@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rollout alerts</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #6b6b6b; --line: #e3e3e3; --panel: #f6f6f6;
+    --fired: #b42318; --fired-bg: #fdecea; --resolved: #067647; --resolved-bg: #e7f6ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141414; --fg: #ececec; --muted: #9a9a9a; --line: #2c2c2c; --panel: #1c1c1c;
+      --fired: #f97066; --fired-bg: #3a1614; --resolved: #47cd89; --resolved-bg: #0f2e1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--muted); font-size: 12px; }
+  h2 { font-size: 15px; margin: 24px 0 8px; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  .state { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .fired { color: var(--fired); background: var(--fired-bg); }
+  .resolved { color: var(--resolved); background: var(--resolved-bg); }
+  .empty { color: var(--muted); padding: 16px 10px; }
+  label { display: inline-block; margin-bottom: 16px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rollout alerts</h1>
+  <p class="sub" id="source">Reads outputs/alerts.jsonl when served over HTTP, or pick the file below.</p>
+  <label>Alerts file <input type="file" id="file" accept=".jsonl,.json,.txt"></label>
+
+  <div class="tiles">
+    <div class="tile"><b id="n-events">0</b><span>transitions</span></div>
+    <div class="tile"><b id="n-firing">0</b><span>still firing</span></div>
+    <div class="tile"><b id="n-versions">0</b><span>versions alerted</span></div>
+    <div class="tile"><b id="n-skipped">0</b><span>unreadable lines</span></div>
+  </div>
+
+  <h2>Still firing</h2>
+  <div class="scroll"><table><thead><tr>
+    <th>Version</th><th>Rule</th><th class="num">Value</th><th class="num">Threshold</th><th>Since (UTC)</th><th>Request</th>
+  </tr></thead><tbody id="firing"></tbody></table></div>
+
+  <h2>All transitions, in the order they were written</h2>
+  <div class="scroll"><table><thead><tr>
+    <th>Time (UTC)</th><th>Version</th><th>Rule</th><th>State</th><th class="num">Value</th><th class="num">Threshold</th><th>Request</th>
+  </tr></thead><tbody id="events"></tbody></table></div>
+</main>
+<script>
+  // One line per transition, as alerts.jsonl_sink writes it:
+  // {"timestamp": <epoch seconds>, "version", "rule", "state": "fired"|"resolved", "value", "threshold", "request_id"}
+  const when = (seconds) => new Date(seconds * 1000).toISOString().replace("T", " ").slice(0, 19);
+  const num = (v) => (typeof v === "number" ? String(Number(v.toPrecision(3))) : String(v));
+
+  // Cells are [text, className]; text always goes in via textContent.
+  function row(cells) {
+    const tr = document.createElement("tr");
+    for (const [text, cls] of cells) {
+      const td = document.createElement("td");
+      if (cls === "state") {
+        const pill = document.createElement("span");
+        pill.className = "state " + (text === "fired" ? "fired" : "resolved");
+        pill.textContent = text;
+        td.append(pill);
+      } else {
+        td.textContent = text;
+        if (cls) td.className = cls;
+      }
+      tr.append(td);
+    }
+    return tr;
+  }
+
+  function fill(id, rows, emptyText, columns) {
+    if (!rows.length) {
+      const td = document.createElement("td");
+      td.colSpan = columns;
+      td.className = "empty";
+      td.textContent = emptyText;
+      const tr = document.createElement("tr");
+      tr.append(td);
+      rows = [tr];
+    }
+    document.getElementById(id).replaceChildren(...rows);
+  }
+
+  function render(text, source) {
+    const events = [];
+    let skipped = 0;
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line);
+        if (typeof e.timestamp !== "number" || !e.rule || !e.state) throw new Error("shape");
+        events.push(e);
+      } catch {
+        skipped += 1;
+      }
+    }
+    // The latest transition per (version, rule) says whether it is still firing.
+    const latest = new Map();
+    for (const e of events) latest.set(e.version + "|" + e.rule, e);
+    const firing = [...latest.values()].filter((e) => e.state === "fired");
+
+    document.getElementById("source").textContent = "Source: " + source;
+    document.getElementById("n-events").textContent = events.length;
+    document.getElementById("n-firing").textContent = firing.length;
+    document.getElementById("n-versions").textContent = new Set(events.map((e) => e.version)).size;
+    document.getElementById("n-skipped").textContent = skipped;
+
+    fill("firing", firing.map((e) => row([
+      [e.version], [e.rule], [num(e.value), "num"], [num(e.threshold), "num"],
+      [when(e.timestamp)], [e.request_id ?? ""],
+    ])), "Nothing is firing.", 6);
+    fill("events", events.map((e) => row([
+      [when(e.timestamp)], [e.version], [e.rule], [e.state, "state"],
+      [num(e.value), "num"], [num(e.threshold), "num"], [e.request_id ?? ""],
+    ])), "No transitions yet.", 7);
+  }
+
+  document.getElementById("file").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (file) render(await file.text(), file.name);
+  });
+
+  fetch("outputs/alerts.jsonl", { cache: "no-store" })
+    .then((r) => (r.ok ? r.text() : Promise.reject()))
+    .then((text) => render(text, "outputs/alerts.jsonl"))
+    .catch(() => render("", "none yet: run the CLI, or pick a file"));
+</script>
+</body>
+</html>
