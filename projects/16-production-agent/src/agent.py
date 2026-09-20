@@ -31,7 +31,7 @@ from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttribu
 from opentelemetry.trace import Status, StatusCode, Tracer
 
 from alerts import LoopGuard
-from tools import TOOL_FUNCTIONS
+from tools import TOOL_FUNCTIONS, ServiceError
 from tracing import to_ns
 
 PROJECT: Final = "16-production-agent"
@@ -101,11 +101,15 @@ class RunRecord:
         duration_s: Wall time of the whole run, in seconds.
         cost_usd: Cost of every model turn in the run.
         tool_calls: Tool calls executed.
-        tool_errors: Tool calls that raised.
+        tool_errors: Tool calls that failed on their input (a bad or unknown
+            ID): the version's own mistakes.
         input_tokens: Prompt tokens across all turns.
         output_tokens: Output tokens across all turns.
         answer: Text of the final assistant turn.
         loop_reason: Loop guard verdict when the outcome is ``loop``.
+        service_errors: Tool calls that failed because the support service
+            did (``tools.ServiceError``). Counted in ``tool_calls``, never in
+            ``tool_errors``.
     """
 
     request_id: str
@@ -120,6 +124,7 @@ class RunRecord:
     output_tokens: int
     answer: str = ""
     loop_reason: str | None = None
+    service_errors: int = 0
 
 
 def outcome_for(stop_reason: str | None) -> str:
@@ -152,6 +157,7 @@ class _Run:
     mark: float
     tool_calls: int = 0
     tool_errors: int = 0
+    service_errors: int = 0
 
     def call_tool(self, fn: Callable[..., str], kwargs: dict[str, Any]) -> str:
         """Run one tool inside a span, counting calls, errors and latency.
@@ -176,7 +182,11 @@ class _Run:
             result = fn(**kwargs)
         except Exception as exc:
             outcome = CallOutcome.ERROR
-            self.tool_errors += 1
+            if isinstance(exc, ServiceError):
+                self.service_errors += 1
+                span.set_attribute("tool.error.source", "service")
+            else:
+                self.tool_errors += 1
             span.set_status(Status(StatusCode.ERROR, str(exc)))
             raise
         else:
@@ -316,4 +326,5 @@ def run_agent(
         output_tokens=output_tokens,
         answer=answer,
         loop_reason=loop_reason,
+        service_errors=run.service_errors,
     )
