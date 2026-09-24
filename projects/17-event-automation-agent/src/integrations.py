@@ -6,7 +6,7 @@ backends without requiring external services. Swap them out in a single line
 when you wire real backends (SQS, PostgreSQL, Slack, etc.).
 
 Usage:
-    from src.integrations import FileEventSource, FileIdempotencyStore, LogWorkflow
+    from integrations import FileEventSource, FileIdempotencyStore, LogWorkflow
 
     source = FileEventSource("./events.jsonl")
     store = FileIdempotencyStore("./claims.json")
@@ -23,17 +23,17 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from src.agent import (
+from agent import (
+    Claim,
     DeadLetterQueue,
     Event,
     EventSource,
     IdempotencyStore,
-    Claim,
     PermanentError,
     Workflow,
     WorkflowContext,
-    LeaseHeldError,
 )
+from circuit_breaker import CircuitBreaker
 
 log = logging.getLogger("integrations")
 
@@ -68,7 +68,7 @@ class FileEventSource(EventSource):
                 continue
 
             try:
-                with open(self.path) as f:
+                with open(self.path) as f:  # noqa: ASYNC230 -- stdlib-only stub; swap for aiofiles or a real queue client in production
                     for line in f:
                         line = line.strip()
                         if not line or line.startswith("#"):
@@ -201,7 +201,7 @@ class FileDeadLetterQueue(DeadLetterQueue):
     async def send(self, letter: Any) -> None:
         """Append dead letter to file."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "a") as f:
+        with open(self.path, "a") as f:  # noqa: ASYNC230 -- stdlib-only stub; swap for a real DLQ client in production
             data = {
                 "event_id": letter.event.id,
                 "workflow": letter.workflow,
@@ -323,6 +323,58 @@ class EnrichmentWorkflow(Workflow):
         observable = ctx.event.payload.get("observable")
         log.info("workflow.enrich event=%s observable=%s", ctx.event.id, observable)
         # TODO: call threat-intel API, store results
+
+
+class CircuitBreakerWorkflow(Workflow):
+    """Wraps another Workflow with a circuit breaker.
+
+    When the wrapped workflow's downstream (EDR, IAM, SOAR API) is failing
+    repeatedly, the circuit opens and every subsequent call fails fast with
+    PermanentError — which WorkflowExecutor sends straight to the dead-letter
+    queue instead of burning through RetryPolicy's attempts against a service
+    that is already down.
+
+    Usage:
+        contain = CircuitBreakerWorkflow(ContainmentWorkflow(), metrics=metrics)
+        executor = WorkflowExecutor(workflows=[contain, ...], ...)
+    """
+
+    def __init__(
+        self,
+        wrapped: Workflow,
+        *,
+        failure_threshold: float = 0.5,
+        min_calls: int = 5,
+        reset_after_s: float = 30.0,
+        metrics: Any = None,
+    ) -> None:
+        self.name = wrapped.name
+        self._wrapped = wrapped
+        self._breaker = CircuitBreaker(
+            name=wrapped.name,
+            failure_threshold=failure_threshold,
+            min_calls=min_calls,
+            reset_after_s=reset_after_s,
+            metrics=metrics,
+        )
+
+    async def run(self, ctx: WorkflowContext) -> None:
+        if not self._breaker.allow():
+            raise PermanentError(
+                f"circuit '{self.name}' is open ({self._breaker.time_until_retry():.0f}s "
+                "until retry); downstream is unhealthy, skipping straight to dead-letter"
+            )
+        try:
+            await self._wrapped.run(ctx)
+        except PermanentError:
+            # A permanent error is a bad event, not an unhealthy dependency —
+            # don't count it against the circuit.
+            raise
+        except Exception:
+            self._breaker.record_failure()
+            raise
+        else:
+            self._breaker.record_success()
 
 
 class ContainmentWorkflow(Workflow):

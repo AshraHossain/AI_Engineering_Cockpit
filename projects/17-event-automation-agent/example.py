@@ -23,22 +23,20 @@ import logging
 import sys
 from pathlib import Path
 
-from src.agent import (
+from agent import (
     AutomationAgent,
-    Event,
+    RetryPolicy,
     TriggerEvaluator,
     TriggerRule,
     WorkflowExecutor,
-    RetryPolicy,
 )
-from src.integrations import (
+from integrations import (
+    EnrichmentWorkflow,
+    FileDeadLetterQueue,
     FileEventSource,
     FileIdempotencyStore,
-    FileDeadLetterQueue,
     LogWorkflow,
-    DelayWorkflow,
     SlackNotifierWorkflow,
-    EnrichmentWorkflow,
 )
 
 # Setup logging
@@ -79,8 +77,7 @@ def create_example_events(path: Path) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        for event in events:
-            f.write(json.dumps(event) + "\n")
+        f.writelines(json.dumps(event) + "\n" for event in events)
 
     log.info("Created example events in %s", path)
 
@@ -159,7 +156,7 @@ async def main() -> None:
     log.info("Starting agent... (will run for 5 seconds)")
     try:
         await asyncio.wait_for(agent.run(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.info("Timeout reached; stopping agent")
 
     # Print results

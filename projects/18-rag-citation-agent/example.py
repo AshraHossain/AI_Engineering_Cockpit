@@ -25,18 +25,17 @@ import asyncio
 import logging
 import sys
 
-from src.agent import (
-    RAGAgent,
-    Query,
-    ConfidenceScorer,
+from agent import (
     CitationGrounder,
+    ConfidenceScorer,
+    Query,
+    RAGAgent,
 )
-from src.integrations import (
+from integrations import (
     FileBasedRetriever,
-    MockLLM,
+    FileMetricsLogger,
     LLMWithClaude,
     SearchFallbackStub,
-    FileMetricsLogger,
 )
 
 # Setup logging
@@ -55,13 +54,9 @@ async def main() -> None:
     # Setup integrations
     retriever = FileBasedRetriever()
 
-    # Try to use Claude; fall back to mock if SDK not available
-    try:
-        llm = LLMWithClaude(model="claude-sonnet-5")
-        log.info("Using Claude LLM")
-    except Exception:
-        log.info("Claude SDK not available; using mock LLM")
-        llm = MockLLM()
+    # LLMWithClaude falls back to MockLLM internally if the Anthropic SDK
+    # or ANTHROPIC_API_KEY isn't available -- no try/except needed here.
+    llm = LLMWithClaude(model="claude-sonnet-5")
 
     fallback = SearchFallbackStub()
     metrics = FileMetricsLogger("/tmp/rag_metrics.jsonl")
@@ -110,8 +105,8 @@ async def main() -> None:
                 for i, citation in enumerate(answer.citations, 1):
                     log.info("  [%d] %s (%s)", i, citation.title, citation.source_uri)
 
-        except Exception as e:
-            log.error("Error processing query: %s", e, exc_info=True)
+        except Exception:
+            log.exception("Error processing query")
 
         log.info("-" * 60)
 

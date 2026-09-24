@@ -7,7 +7,7 @@ in a single line when you integrate real vector DBs, LLM providers,
 and search APIs.
 
 Usage:
-    from src.integrations import FileBasedRetriever, MockLLM, SearchFallbackStub, FileMetricsLogger
+    from integrations import FileBasedRetriever, MockLLM, SearchFallbackStub, FileMetricsLogger
 
     retriever = FileBasedRetriever()
     llm = MockLLM()  # or LLMWithClaude() if ANTHROPIC_API_KEY is set
@@ -26,14 +26,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from src.agent import (
-    ContextItem,
+from agent import (
+    ABSTAIN_TEXT,
     LLM,
-    MetricsLogger,
+    ContextItem,
     Query,
     Retriever,
     SearchFallback,
 )
+from circuit_breaker import CircuitBreaker
 
 log = logging.getLogger("integrations")
 
@@ -245,7 +246,7 @@ class LLMWithClaude(LLM):
             text = "".join(block.text for block in response.content if hasattr(block, "text"))
             log.info("llm.complete (claude) model=%s tokens=%d", self.model, response.usage.output_tokens)
             return text
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- any provider failure must degrade, not crash
             log.error("llm.complete failed: %s; falling back to mock", e)
             return MockLLM().complete(prompt)
 
@@ -299,8 +300,9 @@ class SearchFallbackStub(SearchFallback):
             })
             url = f"{self.searxng_url}?{params}"
 
-            # Use asyncio to wrap the synchronous urllib call with timeout
-            async def fetch():
+            # to_thread() needs a plain sync callable -- an async def here would
+            # hand back an un-awaited coroutine and silently return nothing.
+            def fetch() -> dict[str, Any]:
                 with urllib.request.urlopen(url, timeout=self.timeout_s) as response:
                     return json.loads(response.read())
 
@@ -319,7 +321,7 @@ class SearchFallbackStub(SearchFallback):
                 )
             return results
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- any search-backend failure must fall back, not crash
             log.debug("searxng search failed: %s", e)
             return []
 
@@ -374,7 +376,7 @@ class FileMetricsLogger:
         """Record a timing (in milliseconds)."""
         self._write("timing", name, value_ms, tags)
 
-    def _write(self, kind: str, name: str, value: float | int, tags: dict[str, str]) -> None:
+    def _write(self, kind: str, name: str, value: float, tags: dict[str, str]) -> None:
         """Append metric to file."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         record = {
@@ -387,5 +389,132 @@ class FileMetricsLogger:
         try:
             with open(self.path, "a") as f:
                 f.write(json.dumps(record) + "\n")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- a metrics write must never break the caller
             log.error("failed to write metric %s: %s", name, e)
+
+
+# --------------------------------------------------------------------------- #
+# Circuit Breaker Wrappers
+# --------------------------------------------------------------------------- #
+#
+# Each wraps one of the three external dependencies (Retriever, LLM,
+# SearchFallback) and degrades to the *safe* default for that dependency
+# when its circuit is open, rather than raising:
+#   - Retriever open  -> empty context (RAGAgent treats this as low-confidence
+#                         and routes to fallback search, per the spec).
+#   - LLM open        -> abstain immediately (never guess when the model
+#                         backing the agent is itself unhealthy).
+#   - Fallback open   -> empty search results (primary answer, if any,
+#                         still returns; no cascading failure).
+
+
+class CircuitBreakerRetriever(Retriever):
+    """Wraps a Retriever; returns no context while its circuit is open."""
+
+    def __init__(
+        self,
+        wrapped: Retriever,
+        *,
+        failure_threshold: float = 0.5,
+        min_calls: int = 5,
+        reset_after_s: float = 30.0,
+        metrics: Any = None,
+    ) -> None:
+        self._wrapped = wrapped
+        self._breaker = CircuitBreaker(
+            name="retriever",
+            failure_threshold=failure_threshold,
+            min_calls=min_calls,
+            reset_after_s=reset_after_s,
+            metrics=metrics,
+        )
+
+    async def retrieve(self, query: Query, k: int) -> list[ContextItem]:
+        if not self._breaker.allow():
+            log.warning("retriever circuit open; returning empty context query=%s", query.id)
+            return []
+        try:
+            result = await self._wrapped.retrieve(query, k)
+        except Exception:
+            self._breaker.record_failure()
+            raise
+        else:
+            self._breaker.record_success()
+            return result
+
+
+class CircuitBreakerLLM(LLM):
+    """Wraps an LLM; abstains immediately while its circuit is open.
+
+    Abstaining (rather than raising) is deliberate: RAGAgent's error-handling
+    contract propagates LLM errors to the caller (an outage should be loud),
+    but a *known-bad* circuit is different from a single call failing — we
+    already know retrying will fail, so return the safe answer instead of
+    making every caller pay the same discovered-dead latency.
+    """
+
+    def __init__(
+        self,
+        wrapped: LLM,
+        *,
+        failure_threshold: float = 0.5,
+        min_calls: int = 5,
+        reset_after_s: float = 30.0,
+        metrics: Any = None,
+    ) -> None:
+        self._wrapped = wrapped
+        self._breaker = CircuitBreaker(
+            name="llm",
+            failure_threshold=failure_threshold,
+            min_calls=min_calls,
+            reset_after_s=reset_after_s,
+            metrics=metrics,
+        )
+
+    async def complete(self, prompt: str) -> str:
+        if not self._breaker.allow():
+            log.warning("llm circuit open; abstaining")
+            return ABSTAIN_TEXT
+        try:
+            result = await self._wrapped.complete(prompt)
+        except Exception:
+            self._breaker.record_failure()
+            raise
+        else:
+            self._breaker.record_success()
+            return result
+
+
+class CircuitBreakerSearchFallback(SearchFallback):
+    """Wraps a SearchFallback; returns no results while its circuit is open."""
+
+    def __init__(
+        self,
+        wrapped: SearchFallback,
+        *,
+        failure_threshold: float = 0.5,
+        min_calls: int = 5,
+        reset_after_s: float = 30.0,
+        metrics: Any = None,
+    ) -> None:
+        self._wrapped = wrapped
+        self._breaker = CircuitBreaker(
+            name="search_fallback",
+            failure_threshold=failure_threshold,
+            min_calls=min_calls,
+            reset_after_s=reset_after_s,
+            metrics=metrics,
+        )
+
+    async def search(self, query: Query) -> list[ContextItem]:
+        if not self._breaker.allow():
+            log.warning("search fallback circuit open; returning no results query=%s", query.id)
+            return []
+        try:
+            result = await self._wrapped.search(query)
+        except Exception:
+            self._breaker.record_failure()
+            raise
+        else:
+            self._breaker.record_success()
+            return result
