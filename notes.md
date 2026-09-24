@@ -163,31 +163,71 @@ Created in project **KAN (AeroSense)**:
 
 ## What's Next: Integration & Hardening
 
-### Phase 1: Realistic Integration Stubs
+### Phase 1: Realistic Integration Stubs ✅ DONE
 **Goal:** Replace `TODO(integration)` comments with realistic mock implementations that can be swapped for real backends.
 
-**For Project 17 (Event Automation):**
-- `EventQueue` — in-memory queue with persistence simulation (write to local file)
-- `ApprovalStore` — in-memory dict with JSON serialization
-- `Handlers` — example automation tasks (log, sleep, fail patterns for testing)
+**For Project 17 (Event Automation):** → `projects/17-event-automation-agent/src/integrations.py`
+- `FileEventSource` — reads JSON Lines file, simulates queue delivery semantics
+- `FileIdempotencyStore` — JSON file-based dedup store (process-local; use Redis/PostgreSQL for multi-replica)
+- `FileDeadLetterQueue` — JSON Lines dead-letter log for operator triage and replay
+- **Example Workflows:**
+  - `LogWorkflow` — dumps event to logs (use for testing)
+  - `DelayWorkflow` — sleeps (test retry logic and timeouts)
+  - `FailingWorkflow` — raises transient errors (test retry logic)
+  - `PermanentFailWorkflow` — raises PermanentError (test immediate dead-letter)
+  - `SlackNotifierWorkflow` — template for external notifications
+  - `EnrichmentWorkflow` — template for threat-intel lookups
+  - `ContainmentWorkflow` — template for EDR/IAM/SOAR actions
 
-**For Project 18 (RAG Citation):**
-- `Retriever` — hardcoded document corpus (Wikipedia snippets, docs) with mock scoring
-- `LLM` — calls Claude SDK if ANTHROPIC_API_KEY set, else returns canned responses
-- `SearchFallback` — calls SearXNG public API (or returns mock results)
-- `MetricsLogger` — writes to local file + stdout
+**For Project 18 (RAG Citation):** → `projects/18-rag-citation-agent/src/integrations.py`
+- `FileBasedRetriever` — hardcoded corpus (Wikipedia snippets) with naive relevance ranking
+- `MockLLM` — canned responses with citations (deterministic, no API calls)
+- `LLMWithClaude` — calls Claude Sonnet via Anthropic SDK if available, falls back to mock
+- `SearchFallbackStub` — tries SearXNG public instance, falls back to mock results
+- `FileMetricsLogger` — writes metrics to JSON Lines file (use for observability)
 
-**Why realistic:** Tests can run end-to-end without external services; swap modules in one line of code when integrating real backends
+**Why realistic:** 
+- Tests can run end-to-end without external services
+- Swap modules in one line when integrating real backends
+- Production-adjacent: same interface, different implementation
+- Deterministic for testing; flexible for integration
 
-### Phase 2: Production Hardening
+**Example Usage:**
+- Project 17: `python projects/17-event-automation-agent/example.py`
+- Project 18: `python projects/18-rag-citation-agent/example.py`
+
+### Phase 2: Production Hardening (In Progress)
 **Goals:**
-- Error recovery & circuit breakers
-- Graceful degradation (fail open vs. fail closed)
-- Observability hooks ready for real metrics backend
-- Deployment-ready Dockerfiles, Kubernetes manifests (optional)
+- Error recovery & circuit breakers for transient failures
+- Graceful degradation (fail open for retrieval; fail closed for auth)
+- Rate limiting & backpressure handling
+- Structured logging with correlation IDs
+- Metrics hooks ready for real backend (Prometheus, DataDog, NewRelic)
+- Health checks & liveness/readiness probes
+- Deployment-ready Dockerfiles and Kubernetes manifests
 - Load testing & performance baselines
+- Security: input validation, output escaping, secret rotation
 
-**To be determined based on deployment target (AWS/GCP/self-hosted, containers/serverless, etc.)**
+**Quick Start:**
+1. **For P17 (Event Automation):**
+   - Add circuit breaker on LLM/search API calls
+   - Implement exponential backoff with jitter (already in RetryPolicy)
+   - Add rate limiter on workflow execution
+   - Structured logging with event.id correlation
+   - Health endpoint that checks queue/store connectivity
+
+2. **For P18 (RAG Citation):**
+   - Add circuit breaker on retriever/fallback search
+   - Implement query timeout (e.g., 30s max end-to-end)
+   - Cache retrieved context for repeated queries (with TTL)
+   - Add structured logging with query.id correlation
+   - Health endpoint that checks retriever/LLM/search connectivity
+
+3. **Common to Both:**
+   - Dependency injection for easy integration testing
+   - Graceful shutdown (finish in-flight requests, drain queues)
+   - Observability: structured JSON logging, metrics, traces
+   - Docker image: slim base, security scanning, signed builds
 
 ---
 
