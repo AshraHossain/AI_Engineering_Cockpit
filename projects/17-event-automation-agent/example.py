@@ -25,6 +25,7 @@ from pathlib import Path
 
 from agent import (
     AutomationAgent,
+    LoggingMetrics,
     RetryPolicy,
     TriggerEvaluator,
     TriggerRule,
@@ -142,15 +143,17 @@ async def main() -> None:
     ]
 
     # Setup executor with retry policy
+    metrics = LoggingMetrics()
     executor = WorkflowExecutor(
         workflows=workflows,
         retry_policy=RetryPolicy(max_attempts=3, base_delay_s=0.1),
         dlq=dlq,
-        metrics=None,  # No metrics logging in this example
+        metrics=metrics,
     )
 
-    # Create and run the agent
-    agent = AutomationAgent(source, store, triggers, executor)
+    # Create and run the agent. Argument order is
+    # (source, evaluator, executor, store, metrics).
+    agent = AutomationAgent(source, triggers, executor, store, metrics)
 
     # Run for a few seconds to process the events
     log.info("Starting agent... (will run for 5 seconds)")
@@ -162,7 +165,9 @@ async def main() -> None:
     # Print results
     log.info("=== Results ===")
     log.info("Claims store: %s", dict(store.claims))
-    log.info("Dead letters: %s", dlq.letters)
+    dead_letters = dlq_file.read_text().splitlines() if dlq_file.exists() else []
+    log.info("Dead letters: %d", len(dead_letters))
+    log.info("Metrics: %s", dict(metrics.counters))
     log.info("Check %s for dead-letter details", dlq_file)
 
 
