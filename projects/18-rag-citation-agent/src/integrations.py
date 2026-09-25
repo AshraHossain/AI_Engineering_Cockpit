@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -29,12 +30,16 @@ from typing import Any
 from agent import (
     ABSTAIN_TEXT,
     LLM,
+    Answer,
     ContextItem,
     Query,
+    RAGAgent,
     Retriever,
     SearchFallback,
 )
 from circuit_breaker import CircuitBreaker
+from rate_limiter import RateLimiter
+from structured_logging import bind
 
 log = logging.getLogger("integrations")
 
@@ -60,22 +65,24 @@ class FileBasedRetriever(Retriever):
     async def retrieve(self, query: Query, k: int) -> list[ContextItem]:
         """Return up to k context items from corpus.
 
-        Ranking is naive: substring match on title, then score by position.
-        Replace with real embedding similarity when integrated.
+        Ranking is naive word-overlap, not embedding similarity: a query is
+        a full sentence ("What is Python used for?") and a title/snippet is
+        a handful of words, so testing whether one is a *substring* of the
+        other -- the previous approach -- essentially never matches. Counting
+        shared words is still not real relevance ranking, but it actually
+        returns results. Replace with embedding similarity when integrated.
         """
-        query_lower = query.text.lower()
+        query_words = set(re.findall(r"\w+", query.text.lower()))
         scored = []
 
         for item in self.corpus:
-            # Naive relevance: title match, then snippet match
-            title_match = query_lower in item.title.lower()
-            snippet_match = query_lower in item.snippet.lower()
+            title_words = set(re.findall(r"\w+", item.title.lower()))
+            snippet_words = set(re.findall(r"\w+", item.snippet.lower()))
+            title_overlap = len(query_words & title_words)
+            snippet_overlap = len(query_words & snippet_words)
 
-            if title_match or snippet_match:
-                # Score: title match is stronger, position matters
-                score = 0.9 if title_match else 0.7
-                if snippet_match:
-                    score = min(score + 0.1, 1.0)
+            if title_overlap or snippet_overlap:
+                score = min(0.5 + 0.1 * title_overlap + 0.05 * snippet_overlap, 1.0)
                 scored.append((item, score))
 
         # Sort by score descending, take top k
@@ -91,12 +98,7 @@ class FileBasedRetriever(Retriever):
             for i, (item, score) in enumerate(sorted_results[:k])
         ]
 
-        log.info(
-            "retrieve query=%s k=%d results=%d",
-            query.id,
-            k,
-            len(results),
-        )
+        bind(log, correlation_id=query.id).info("retrieve", extra={"k": k, "results": len(results)})
         return results
 
     def _build_corpus(self) -> list[ContextItem]:
@@ -235,7 +237,7 @@ class LLMWithClaude(LLM):
         """Call Claude with the grounding prompt."""
         if self.client is None:
             log.warning("Anthropic SDK not available; using mock response")
-            return MockLLM().complete(prompt)
+            return await MockLLM().complete(prompt)
 
         try:
             response = await self.client.messages.create(
@@ -248,7 +250,7 @@ class LLMWithClaude(LLM):
             return text
         except Exception as e:  # noqa: BLE001 -- any provider failure must degrade, not crash
             log.error("llm.complete failed: %s; falling back to mock", e)
-            return MockLLM().complete(prompt)
+            return await MockLLM().complete(prompt)
 
 
 # --------------------------------------------------------------------------- #
@@ -279,12 +281,13 @@ class SearchFallbackStub(SearchFallback):
         """Search via SearXNG or return mock fallback."""
         # Try SearXNG first
         results = await self._search_searxng(query.text)
+        bound = bind(log, correlation_id=query.id)
         if results:
-            log.info("search.fallback query=%s results=%d (from searxng)", query.id, len(results))
+            bound.info("search.fallback", extra={"source": "searxng", "results": len(results)})
             return results
 
         # Fallback to mock
-        log.warning("search.fallback query=%s falling back to mock results", query.id)
+        bound.warning("search.fallback falling back to mock results")
         return self._mock_results(query.text)
 
     async def _search_searxng(self, query: str) -> list[ContextItem]:
@@ -429,9 +432,13 @@ class CircuitBreakerRetriever(Retriever):
             metrics=metrics,
         )
 
+    def allow(self) -> bool:
+        """True if the circuit is not open -- for health/readiness checks."""
+        return self._breaker.allow()
+
     async def retrieve(self, query: Query, k: int) -> list[ContextItem]:
         if not self._breaker.allow():
-            log.warning("retriever circuit open; returning empty context query=%s", query.id)
+            bind(log, correlation_id=query.id).warning("retriever circuit open; returning empty context")
             return []
         try:
             result = await self._wrapped.retrieve(query, k)
@@ -471,7 +478,14 @@ class CircuitBreakerLLM(LLM):
             metrics=metrics,
         )
 
+    def allow(self) -> bool:
+        """True if the circuit is not open -- for health/readiness checks."""
+        return self._breaker.allow()
+
     async def complete(self, prompt: str) -> str:
+        # ponytail: LLM.complete() takes a bare prompt string, not a Query, so
+        # there's no correlation_id to bind here without widening the core
+        # interface -- add one only if per-query LLM tracing turns out to matter.
         if not self._breaker.allow():
             log.warning("llm circuit open; abstaining")
             return ABSTAIN_TEXT
@@ -506,9 +520,13 @@ class CircuitBreakerSearchFallback(SearchFallback):
             metrics=metrics,
         )
 
+    def allow(self) -> bool:
+        """True if the circuit is not open -- for health/readiness checks."""
+        return self._breaker.allow()
+
     async def search(self, query: Query) -> list[ContextItem]:
         if not self._breaker.allow():
-            log.warning("search fallback circuit open; returning no results query=%s", query.id)
+            bind(log, correlation_id=query.id).warning("search fallback circuit open; returning no results")
             return []
         try:
             result = await self._wrapped.search(query)
@@ -518,3 +536,78 @@ class CircuitBreakerSearchFallback(SearchFallback):
         else:
             self._breaker.record_success()
             return result
+
+
+# --------------------------------------------------------------------------- #
+# Input Validation & Rate Limiting
+# --------------------------------------------------------------------------- #
+
+MAX_QUERY_LENGTH = 1000
+
+
+class QueryValidationError(Exception):
+    """A query's text violates a length or content rule."""
+
+
+class QueryRateLimitedError(Exception):
+    """A query was rejected because its rate-limit key is over budget."""
+
+
+def validate_query_text(text: str, max_length: int = MAX_QUERY_LENGTH) -> None:
+    """Reject empty or oversized query text before it reaches retrieval.
+
+    A user's question is untrusted input by construction. Without a bound,
+    a single pathologically long query inflates embedding cost, prompt
+    size, and the LLM bill for no benefit -- and an empty query has no
+    retrieval signal to act on at all.
+    """
+    if not text or not text.strip():
+        raise QueryValidationError("query text is empty")
+    if len(text) > max_length:
+        raise QueryValidationError(f"query is {len(text)} chars, max is {max_length}")
+
+
+class SecureRAGAgent:
+    """Wraps a RAGAgent with input validation and per-key rate limiting.
+
+    Not a RAGAgent subclass: it doesn't reimplement retrieve/generate/ground/
+    score, it guards the one public entry point (`answer`) before delegating.
+    Rate limiting is keyed by `query.metadata["user_id"]` (falling back to
+    "anonymous") -- swap in an API key, tenant ID, or caller IP depending on
+    what actually identifies your caller.
+
+    Both `QueryValidationError` and `QueryRateLimitedError` propagate rather
+    than being caught here: unlike an event source that can silently drop and
+    move on, a synchronous request needs its caller (an HTTP handler, a CLI)
+    to turn these into the right response -- a 400 for validation, a 429 for
+    rate limiting.
+
+    Usage:
+        agent = SecureRAGAgent(RAGAgent(retriever, llm, fallback, ...))
+        answer = await agent.answer(Query(text="...", metadata={"user_id": "u1"}))
+    """
+
+    def __init__(
+        self,
+        wrapped: RAGAgent,
+        *,
+        max_query_length: int = MAX_QUERY_LENGTH,
+        capacity: float = 20.0,
+        refill_per_s: float = 1.0,
+        metrics: Any = None,
+    ) -> None:
+        self._wrapped = wrapped
+        self._max_query_length = max_query_length
+        self._limiter = RateLimiter(capacity=capacity, refill_per_s=refill_per_s)
+        self._metrics = metrics
+
+    async def answer(self, query: Query) -> Answer:
+        validate_query_text(query.text, max_length=self._max_query_length)
+
+        key = query.metadata.get("user_id", "anonymous")
+        if not self._limiter.allow(key):
+            if self._metrics is not None:
+                self._metrics.increment("rag.rate_limited", user=key)
+            raise QueryRateLimitedError(f"rate limit exceeded for user {key!r}")
+
+        return await self._wrapped.answer(query)
