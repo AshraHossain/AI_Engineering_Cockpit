@@ -50,68 +50,119 @@ by design — these projects are deliberately dependency-free and don't share a 
 
 ---
 
-## Milestone 2: Structured Logging & Correlation IDs (High Priority)
+## Milestone 2: Structured Logging & Correlation IDs (High Priority) ✅ DONE
 
 **Why:** Production debugging requires tracing a request through all services. Correlation IDs link logs across components.
 
-### Implementation
-- [ ] Update logging format to structured JSON
-  - Add correlation_id, component, level, timestamp, message, context
-  - Example: `{"correlation_id":"evt-123","component":"p17.workflow","level":"error","message":"circuit open","workflow":"contain"}`
+**Implemented:** `src/structured_logging.py` in both projects (stdlib-only, duplicated by design, same as
+`circuit_breaker.py`) — a `JsonFormatter` that renders every `LogRecord` as one JSON line (timestamp,
+level, component, message, plus any `extra={...}` fields verbatim), and `bind(logger, **context)`, which
+returns a `LoggerAdapter` that attaches context (typically `correlation_id=event.id` / `query.id`) to
+every call made through it, merging with whatever `extra` the call site adds rather than clobbering it
+(the stdlib `LoggerAdapter` default *replaces* `extra`, which would have silently dropped per-call fields).
+6 tests each (`tests/test_structured_logging.py`).
 
-- [ ] Thread correlation_id through all calls
-  - P17: `Event.id` is the correlation_id (already present)
-  - P18: `Query.id` is the correlation_id (already present)
-  
-- [ ] Update all log calls to include relevant context
-  - Replace: `log.info("workflow.log event=%s", event.id)`
-  - With: structured logger that captures event.id + attempt + attempt_duration
-  
-- [ ] Make integrations correlation-aware
-  - FileEventSource logs ack/nack with event.id
-  - FileIdempotencyStore logs claim/complete with event.id
-  - FileBasedRetriever logs retrieve with query.id
-  - LLMWithClaude logs complete with query.id
+- [x] JSON logging format: `{"timestamp":"...","level":"ERROR","component":"integrations","message":"event dead-lettered","correlation_id":"evt-1","workflow":"contain","attempts":3,"error":"..."}`
+- [x] Correlation ID threaded through every log call that has one available:
+  - P17: `FileEventSource` (ack/nack), `FileIdempotencyStore` (claim/complete/fail/release),
+    `FileDeadLetterQueue` (send), every example `Workflow` — all keyed on `Event.id`
+  - P18: `FileBasedRetriever` (retrieve), `SearchFallbackStub` (search), the retriever/search
+    circuit-breaker wrappers — all keyed on `Query.id`
+  - **Known ceiling:** `LLM.complete(prompt: str)` takes a bare string, not a `Query`, so
+    `LLMWithClaude` / `CircuitBreakerLLM` have no correlation_id to attach without widening that
+    core interface — left as-is (see `ponytail:` comment in `CircuitBreakerLLM.complete`)
+- [x] `configure_json_logging()` wired into both `example.py` scripts (set `EXAMPLE_LOG_FORMAT=text`
+  for the old human-readable format while developing)
+
+**Bugs found and fixed while actually running the examples end-to-end** (not just unit tests):
+  - `AutomationAgent(source, store, triggers, executor)` in P17's example used the wrong argument
+    order and omitted the required `metrics` argument entirely — `AutomationAgent.__init__` is
+    `(source, evaluator, executor, store, metrics)`
+  - P17's example read `dlq.letters`, an attribute that only exists on `InMemoryDeadLetterQueue`;
+    `FileDeadLetterQueue` (the stub actually used) has no such attribute
+  - P18's example called `ConfidenceScorer(threshold=0.6)` — the threshold lives on `RAGAgent`,
+    `ConfidenceScorer` takes no constructor arguments
+  - `FileBasedRetriever.retrieve()` tested whether the *entire query sentence* was a substring of a
+    title/snippet ("what is python used for?" in "python (programming language)") — this is
+    essentially never true for natural-language questions, so retrieval silently returned zero
+    results for every query. Replaced with word-overlap scoring, which actually retrieves.
+  - `LLMWithClaude.complete()` returned `MockLLM().complete(prompt)` (a coroutine) instead of
+    `await MockLLM().complete(prompt)` in both its fallback paths — same "coroutine created but
+    never awaited, silently returns nothing" shape as the `SearchFallbackStub` bug fixed in
+    Milestone 1
 
 ---
 
-## Milestone 3: Health Checks & Deployment Readiness (Medium Priority)
+## Milestone 3: Health Checks & Deployment Readiness (Medium Priority) ✅ DONE
 
 **Why:** Kubernetes and orchestration platforms need health checks. Graceful shutdown and zero-downtime deployment require careful sequencing.
 
-### Implementation
-- [ ] Add health check endpoints to both agents
-  - `/healthz` (liveness) — agent process is running
-  - `/readyz` (readiness) — agent is ready to process requests
-  - Return JSON: `{"status":"healthy","components":{"retriever":"up","llm":"up","fallback":"up"}}`
+**Implemented:** `src/health.py` in both projects (stdlib `http.server`, no dependency) — `HealthChecker`
+aggregates named component checks into a readiness verdict (`require_any(...)` for groups where one
+healthy member is enough), and `serve_health(checker, port)` exposes it over real HTTP on a background
+daemon thread. 10 tests each (`tests/test_health.py`), including tests that start the actual server on
+an OS-assigned port and hit it with `urllib.request` — not just the aggregation logic in isolation.
 
-- [ ] Graceful shutdown handlers
-  - On SIGTERM: stop accepting new events, finish in-flight work, drain queue
-  - Timeout: force shutdown after 30s
-  - Log shutdown sequence
+- [x] `/healthz` (liveness) — 200 `{"status": "alive"}` whenever the process is up, independent of readiness
+- [x] `/readyz` (readiness) — 200 `{"status": "ready", "components": {...}}` or 503 `{"status": "not_ready", ...}`
+- [x] Readiness reflects real circuit-breaker state (`CircuitBreakerWorkflow.allow()` / `CircuitBreakerRetriever.allow()`
+  / `CircuitBreakerLLM.allow()` / `CircuitBreakerSearchFallback.allow()` — each wrapper now exposes this
+  publicly for exactly this purpose; both example scripts wire it up and print the live URLs on startup)
+  - P17: each workflow individually required (no `require_any` — a dead-lettering workflow still means degraded capability)
+  - P18: `require_any("retriever", "search_fallback")` — matches `RAGAgent`'s own tolerance for either one being down; `llm` is individually required, since without it there's no answer to ground
+- [x] Graceful shutdown (P17 only — P18's `RAGAgent.answer()` is request/response with no persistent loop to
+  drain): `src/shutdown.py` turns SIGTERM/SIGINT into `task.cancel()`. `AutomationAgent.run()` already
+  drained correctly on cancellation before this milestone (its `finally` awaits in-flight work, `_handle()`
+  releases the lease on `CancelledError`) — the gap was only that a real signal never reached that path. 1
+  test (`tests/test_shutdown.py`) pins the callback logic; OS-level signal delivery isn't exercised in
+  tests since Windows (in the CI matrix) doesn't deliver SIGTERM to a Python handler the same way Unix
+  does, and a platform-fragile test would be testing the OS, not this code.
 
-- [ ] Readiness depends on downstream availability
-  - P17: at least one workflow must be available (circuit CLOSED or HALF_OPEN)
-  - P18: retriever OR fallback must be available (not both down)
+**Bug found while wiring this in:** neither example script had ever actually used the circuit-breaker
+wrappers built in Milestone 1 — `example.py` constructed the raw `Retriever`/`LLM`/`SearchFallback`/`Workflow`
+instances directly. Fixed by wrapping them, which is also what makes the health checks meaningful (a
+breaker with nothing routed through it can't reflect real dependency health).
 
 ---
 
-## Milestone 4: Performance Baselines & Load Testing (Medium Priority)
+## Milestone 4: Performance Baselines & Load Testing (Medium Priority) ✅ DONE
 
 **Why:** You can't optimize what you don't measure. Baselines catch regressions.
 
-### Implementation
-- [ ] Create load test script for each project
-  - P17: generate N events/second, measure latency, error rate, dead-letter rate
-  - P18: generate N queries/second, measure end-to-end latency, fallback rate, abstention rate
+**Implemented:** `load_test.py` at the root of both projects (stdlib `statistics.quantiles` for
+percentiles, no dependency). Each measures the pipeline's *own* overhead against in-memory / offline
+stand-ins, deliberately not the network-touching integration stubs — a load test that spends its time
+waiting on a real API measures that API, not this codebase. 4-5 smoke tests each (`tests/test_load_test.py`)
+assert the harness produces sane, non-degenerate output; these are not performance assertions (CI hardware
+varies too much for a fixed threshold to mean anything).
 
-- [ ] Record baseline metrics
-  - P17: 1000 events/sec, p99 latency < 500ms, < 1% dead-letter rate
-  - P18: 100 queries/sec, p99 latency < 5s, < 10% fallback rate, 0% abstention
+- [x] P17: `SyntheticEventSource` + `NoopWorkflow` + in-memory stores (`InMemoryIdempotencyStore`,
+  `InMemoryDeadLetterQueue`) isolate trigger-evaluation + claim/settle + retry-policy overhead from
+  disk I/O. Reports throughput, dead-letter rate, and `workflow.duration_ms` percentiles (already-emitted
+  metrics, not new instrumentation).
+- [x] P18: `MockLLM` (deterministic, no API calls) + `FileBasedRetriever` (in-memory corpus) +
+  `OfflineFallback` (fixed result, no network) isolate retrieve → generate → ground → score overhead.
+  Reports throughput, fallback rate, abstain rate, and end-to-end latency percentiles.
+- [ ] CI regression gate — not implemented. A fixed pass/fail threshold needs a stable reference
+  machine to mean anything; this repo's CI matrix runs on three OSes with variable-performance shared
+  runners, where a hard latency threshold would be flaky by infrastructure, not by regression. Worth
+  revisiting if/when this gets a dedicated benchmark runner.
 
-- [ ] Automated performance regression detection
-  - CI runs load test on every PR
-  - Fail if latency p99 > baseline * 1.2 or error rate > baseline * 2
+**Measured baselines (this machine, informational only — no assertion in CI):**
+
+| | Throughput | p50 | p95 | p99 |
+|---|---|---|---|---|
+| P17 (2000 synthetic events, concurrency 32) | ~34k events/sec | <0.01ms | <0.01ms | <0.01ms |
+| P18 (300 synthetic queries, concurrency 16) | ~4.5k queries/sec | 0.19ms | 0.26ms | 0.37ms |
+
+**Bug found while building this:** the first version of P18's load test used `SearchFallbackStub`
+(the real integration stub), which attempts a live HTTP request to a public SearXNG instance before
+falling back to a mock result. With 40% of the sample queries hitting fallback, that turned a
+sub-millisecond pipeline benchmark into one dominated by real network round-trips (p95/p99 jumped to
+580-620ms) — the opposite of what a load test for *this codebase* should measure, and a real flakiness
+risk if a smoke test ever exercised it in a network-restricted CI runner. Replaced with `OfflineFallback`,
+a fixed-result stand-in local to `load_test.py`; `test_run_load_test_is_fast_with_no_network_calls` pins
+this so a future edit can't silently reintroduce it.
 
 ---
 

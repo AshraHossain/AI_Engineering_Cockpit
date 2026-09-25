@@ -34,6 +34,7 @@ from agent import (
     WorkflowContext,
 )
 from circuit_breaker import CircuitBreaker
+from structured_logging import bind
 
 log = logging.getLogger("integrations")
 
@@ -83,7 +84,7 @@ class FileEventSource(EventSource):
                         if event.id not in self._processed:
                             yield event
             except json.JSONDecodeError as e:
-                log.error("malformed event in %s: %s", self.path, e)
+                log.error("malformed event in source file", extra={"path": str(self.path), "error": str(e)})
             except FileNotFoundError:
                 pass
 
@@ -92,12 +93,14 @@ class FileEventSource(EventSource):
     async def ack(self, event: Event) -> None:
         """Mark event as processed (won't re-yield it)."""
         self._processed.add(event.id)
-        log.info("ack event=%s", event.id)
+        bind(log, correlation_id=event.id).info("event acknowledged", extra={"action": "ack"})
 
     async def nack(self, event: Event, reason: BaseException) -> None:
         """Un-process the event (will be re-yielded on next poll)."""
         self._processed.discard(event.id)
-        log.warning("nack event=%s reason=%s", event.id, type(reason).__name__)
+        bind(log, correlation_id=event.id).warning(
+            "event returned for redelivery", extra={"action": "nack", "reason": type(reason).__name__}
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -156,27 +159,27 @@ class FileIdempotencyStore(IdempotencyStore):
 
         self.claims[event_id] = now + ttl_s
         self._save()
-        log.info("claimed event=%s ttl=%.1fs", event_id, ttl_s)
+        bind(log, correlation_id=event_id).info("event claimed", extra={"action": "claim", "ttl_s": ttl_s})
         return Claim.ACQUIRED
 
     async def complete(self, event_id: str) -> None:
         """Mark event as permanently done."""
         self.claims[event_id] = self._SETTLED
         self._save()
-        log.info("completed event=%s", event_id)
+        bind(log, correlation_id=event_id).info("event completed", extra={"action": "complete"})
 
     async def fail(self, event_id: str) -> None:
         """Mark event as permanently failed (dead-lettered)."""
         self.claims[event_id] = self._SETTLED
         self._save()
-        log.info("failed event=%s", event_id)
+        bind(log, correlation_id=event_id).info("event failed", extra={"action": "fail"})
 
     async def release(self, event_id: str) -> None:
         """Drop lease so broker may redeliver."""
         if event_id in self.claims:
             del self.claims[event_id]
             self._save()
-        log.info("released event=%s", event_id)
+        bind(log, correlation_id=event_id).info("event lease released", extra={"action": "release"})
 
 
 # --------------------------------------------------------------------------- #
@@ -211,11 +214,9 @@ class FileDeadLetterQueue(DeadLetterQueue):
                 "event_payload": letter.event.payload,
             }
             f.write(json.dumps(data) + "\n")
-        log.error(
-            "dead-letter event=%s workflow=%s attempts=%d",
-            letter.event.id,
-            letter.workflow,
-            letter.attempts,
+        bind(log, correlation_id=letter.event.id).error(
+            "event dead-lettered",
+            extra={"workflow": letter.workflow, "attempts": letter.attempts, "error": letter.error},
         )
 
 
@@ -234,11 +235,8 @@ class LogWorkflow(Workflow):
     name = "log"
 
     async def run(self, ctx: WorkflowContext) -> None:
-        log.info(
-            "workflow.log event=%s attempt=%d payload=%s",
-            ctx.event.id,
-            ctx.attempt,
-            ctx.event.payload,
+        bind(log, correlation_id=ctx.event.id).info(
+            "workflow.log", extra={"attempt": ctx.attempt, "payload": ctx.event.payload}
         )
 
 
@@ -252,7 +250,9 @@ class DelayWorkflow(Workflow):
     duration_s = 0.5
 
     async def run(self, ctx: WorkflowContext) -> None:
-        log.info("workflow.delay event=%s sleeping %.1fs", ctx.event.id, self.duration_s)
+        bind(log, correlation_id=ctx.event.id).info(
+            "workflow.delay sleeping", extra={"duration_s": self.duration_s}
+        )
         await asyncio.sleep(self.duration_s)
 
 
@@ -266,10 +266,11 @@ class FailingWorkflow(Workflow):
     name = "failing"
 
     async def run(self, ctx: WorkflowContext) -> None:
-        log.info("workflow.failing event=%s attempt=%d", ctx.event.id, ctx.attempt)
+        bound = bind(log, correlation_id=ctx.event.id)
+        bound.info("workflow.failing", extra={"attempt": ctx.attempt})
         if ctx.attempt < 3:
             raise RuntimeError("simulated transient failure")
-        log.info("workflow.failing event=%s succeeded after retries", ctx.event.id)
+        bound.info("workflow.failing succeeded after retries", extra={"attempt": ctx.attempt})
 
 
 class PermanentFailWorkflow(Workflow):
@@ -306,7 +307,7 @@ class SlackNotifierWorkflow(Workflow):
 
     async def run(self, ctx: WorkflowContext) -> None:
         msg = f"Event `{ctx.event.id}` ({ctx.event.type}) from {ctx.event.source}"
-        log.info("workflow.slack_notify event=%s message=%s", ctx.event.id, msg)
+        bind(log, correlation_id=ctx.event.id).info("workflow.slack_notify", extra={"message": msg})
         # TODO: actually POST to webhook_url when integrated
 
 
@@ -321,7 +322,7 @@ class EnrichmentWorkflow(Workflow):
 
     async def run(self, ctx: WorkflowContext) -> None:
         observable = ctx.event.payload.get("observable")
-        log.info("workflow.enrich event=%s observable=%s", ctx.event.id, observable)
+        bind(log, correlation_id=ctx.event.id).info("workflow.enrich", extra={"observable": observable})
         # TODO: call threat-intel API, store results
 
 
@@ -358,6 +359,10 @@ class CircuitBreakerWorkflow(Workflow):
             metrics=metrics,
         )
 
+    def allow(self) -> bool:
+        """True if the circuit is not open -- for health/readiness checks."""
+        return self._breaker.allow()
+
     async def run(self, ctx: WorkflowContext) -> None:
         if not self._breaker.allow():
             raise PermanentError(
@@ -392,10 +397,7 @@ class ContainmentWorkflow(Workflow):
     async def run(self, ctx: WorkflowContext) -> None:
         action = ctx.event.payload.get("action", "isolate_host")
         target = ctx.event.payload.get("target", "unknown")
-        log.info(
-            "workflow.contain event=%s action=%s target=%s",
-            ctx.event.id,
-            action,
-            target,
+        bind(log, correlation_id=ctx.event.id).info(
+            "workflow.contain", extra={"action": action, "target": target}
         )
         # TODO: call EDR/IAM/SOAR API for real containment

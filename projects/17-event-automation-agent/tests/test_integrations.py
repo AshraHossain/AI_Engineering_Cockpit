@@ -75,9 +75,21 @@ def test_permanent_error_does_not_trip_the_circuit():
 
     # Five permanent errors on bad *events*, not an unhealthy dependency —
     # the circuit must still be closed, i.e. it keeps calling through.
-    assert breaker._breaker.allow() is True
+    assert breaker.allow() is True
 
 
 def test_name_matches_wrapped_workflow():
     breaker = CircuitBreakerWorkflow(FlakyWorkflow())
     assert breaker.name == "flaky"
+
+
+def test_allow_reflects_circuit_state_for_health_checks():
+    wrapped = FlakyWorkflow()
+    breaker = CircuitBreakerWorkflow(wrapped, min_calls=2, failure_threshold=0.5)
+    assert breaker.allow() is True
+    for _ in range(2):
+        try:
+            asyncio.run(breaker.run(ctx()))
+        except RuntimeError:
+            pass
+    assert breaker.allow() is False

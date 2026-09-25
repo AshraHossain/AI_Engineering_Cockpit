@@ -20,6 +20,7 @@ This will:
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -31,7 +32,9 @@ from agent import (
     TriggerRule,
     WorkflowExecutor,
 )
+from health import HealthChecker, serve_health
 from integrations import (
+    CircuitBreakerWorkflow,
     EnrichmentWorkflow,
     FileDeadLetterQueue,
     FileEventSource,
@@ -39,12 +42,16 @@ from integrations import (
     LogWorkflow,
     SlackNotifierWorkflow,
 )
+from shutdown import install_signal_handlers
+from structured_logging import configure_json_logging
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-)
+# One JSON object per log line -- grep any event's correlation_id across
+# every component it touched. Set EXAMPLE_LOG_FORMAT=text for the old
+# human-readable format while developing.
+if os.environ.get("EXAMPLE_LOG_FORMAT") == "text":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+else:
+    configure_json_logging()
 
 log = logging.getLogger("example")
 
@@ -135,15 +142,33 @@ async def main() -> None:
     dlq = FileDeadLetterQueue(dlq_file)
     triggers = define_triggers()
 
-    # Setup workflows
+    # Setup metrics first: circuit breakers report their state transitions to it
+    metrics = LoggingMetrics()
+
+    # Wrap each workflow with a circuit breaker: if a workflow's downstream
+    # starts failing repeatedly, it fails fast to the dead-letter queue
+    # instead of burning through retries against a service that's down.
     workflows = [
         LogWorkflow(),
-        EnrichmentWorkflow(),
-        SlackNotifierWorkflow(),
+        CircuitBreakerWorkflow(EnrichmentWorkflow(), metrics=metrics),
+        CircuitBreakerWorkflow(SlackNotifierWorkflow(), metrics=metrics),
     ]
 
-    # Setup executor with retry policy
-    metrics = LoggingMetrics()
+    # Health checks read the same breakers workflows run through, so
+    # readiness reflects the agent's actual ability to process events --
+    # not just "the process is up."
+    health = HealthChecker()
+    for wf in workflows:
+        if isinstance(wf, CircuitBreakerWorkflow):
+            health.register(wf.name, wf.allow)
+    health_server = serve_health(health, port=0)
+    log.info(
+        "health endpoints ready",
+        extra={"healthz": f"http://127.0.0.1:{health_server.server_port}/healthz",
+               "readyz": f"http://127.0.0.1:{health_server.server_port}/readyz"},
+    )
+
+    # Setup executor with retry policy (same `metrics` the breakers above report to)
     executor = WorkflowExecutor(
         workflows=workflows,
         retry_policy=RetryPolicy(max_attempts=3, base_delay_s=0.1),
@@ -155,19 +180,29 @@ async def main() -> None:
     # (source, evaluator, executor, store, metrics).
     agent = AutomationAgent(source, triggers, executor, store, metrics)
 
-    # Run for a few seconds to process the events
-    log.info("Starting agent... (will run for 5 seconds)")
+    # install_signal_handlers wires SIGTERM/SIGINT to a clean task.cancel(),
+    # which AutomationAgent.run() already turns into a graceful drain (its
+    # `finally` block awaits in-flight work before the cancellation
+    # propagates). The 5s timeout below exercises that exact same code path
+    # so this demo finishes on its own -- a real SIGTERM would do the same.
+    task = asyncio.create_task(agent.run())
+    install_signal_handlers(task)
+
+    log.info("Starting agent... (will run for 5 seconds, or until Ctrl+C)")
     try:
-        await asyncio.wait_for(agent.run(), timeout=5.0)
-    except TimeoutError:
-        log.info("Timeout reached; stopping agent")
+        await asyncio.wait_for(task, timeout=5.0)
+    except (TimeoutError, asyncio.CancelledError):
+        log.info("Shutting down: draining in-flight work")
+
+    health_server.shutdown()
+    health_server.server_close()
 
     # Print results
     log.info("=== Results ===")
     log.info("Claims store: %s", dict(store.claims))
     dead_letters = dlq_file.read_text().splitlines() if dlq_file.exists() else []
     log.info("Dead letters: %d", len(dead_letters))
-    log.info("Metrics: %s", dict(metrics.counters))
+    log.info("Metric counters: %s", metrics.counters)
     log.info("Check %s for dead-letter details", dlq_file)
 
 
