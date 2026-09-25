@@ -40,7 +40,10 @@ from integrations import (
     FileBasedRetriever,
     FileMetricsLogger,
     LLMWithClaude,
+    QueryRateLimitedError,
+    QueryValidationError,
     SearchFallbackStub,
+    SecureRAGAgent,
 )
 from structured_logging import configure_json_logging
 
@@ -104,10 +107,18 @@ async def main() -> None:
         threshold=0.6,
     )
 
-    # Example queries
+    # Wrap with input validation + per-user rate limiting. Capacity is
+    # deliberately tight (3 requests, slow refill) so the demo's own query
+    # volume for "demo-user" actually demonstrates a 429-equivalent rather
+    # than requiring a much longer query list to hit a realistic budget.
+    secure_agent = SecureRAGAgent(agent, capacity=3, refill_per_s=0.5, metrics=metrics)
+
+    # Example queries: one deliberately empty (validation), the rest normal
+    # enough to also exercise the rate limit before they all finish.
     queries = [
         "What is Python and what is it used for?",
         "How does asyncio work in Python?",
+        "",  # deliberately invalid: SecureRAGAgent rejects before retrieval runs
         "What is retrieval-augmented generation?",
         "What is the meaning of life?",  # Should trigger "I don't know" fallback
         "Explain TypeScript",
@@ -117,11 +128,11 @@ async def main() -> None:
     log.info("=" * 60)
 
     for query_text in queries:
-        query = Query(text=query_text)
-        log.info("Query: %s", query_text)
+        query = Query(text=query_text, metadata={"user_id": "demo-user"})
+        log.info("Query: %r", query_text)
 
         try:
-            answer = await agent.answer(query)
+            answer = await secure_agent.answer(query)
             log.info("Answer: %s", answer.text)
             log.info(
                 "Confidence: %.2f | Citations: %d | Fallback: %s",
@@ -134,6 +145,10 @@ async def main() -> None:
                 for i, citation in enumerate(answer.citations, 1):
                     log.info("  [%d] %s (%s)", i, citation.title, citation.source_uri)
 
+        except QueryValidationError as e:
+            log.warning("Query rejected (would be HTTP 400): %s", e)
+        except QueryRateLimitedError as e:
+            log.warning("Query rejected (would be HTTP 429): %s", e)
         except Exception:
             log.exception("Error processing query")
 

@@ -2,7 +2,7 @@
 
 A production-ready skeleton for a retrieval-augmented agent that answers only from its sources, in both **Python** (`asyncio`) and **TypeScript** (Node `async`/`await`). Every sentence must cite a retrieved source; citations are validated against what the model was shown; low-confidence answers trigger one external search, and if still below threshold, the agent says **"I don't know."** instead of hallucinating.
 
-**What's implemented:** grounding logic (citation validation, confidence scoring, fallback routing, abstention), circuit breakers per dependency, structured JSON logging with correlation IDs, health checks, and a load-test harness. **52 tests, 85% overall coverage** (99% on the core grounding/scoring logic — see [Coverage Report](#coverage-report)).
+**What's implemented:** grounding logic (citation validation, confidence scoring, fallback routing, abstention), circuit breakers per dependency, structured JSON logging with correlation IDs, health checks, a load-test harness, and input validation / per-user rate limiting. **71 tests, 86% overall coverage** (99% on the core grounding/scoring logic — see [Coverage Report](#coverage-report)).
 
 **What's stubbed:** `Retriever`, `LLM`, and `SearchFallback` have realistic file-backed / mock implementations in `src/integrations.py` (a hardcoded corpus, canned or real-Claude responses, an offline-first search fallback) so the whole pipeline runs with no external services — but they're still marked `TODO(integration)` for wiring to your actual vector DB, model provider, and search API.
 
@@ -18,6 +18,7 @@ A production-ready skeleton for a retrieval-augmented agent that answers only fr
 | `src/circuit_breaker.py` | Per-dependency breaker; open circuit degrades to the safe default (empty context / abstain / empty results) instead of raising. |
 | `src/structured_logging.py` | JSON log lines with a `correlation_id` bound per query, threaded through retrieval and search. |
 | `src/health.py` | `/healthz` (liveness) and `/readyz` (readiness) over plain `http.server`; readiness reflects real circuit-breaker state. |
+| `src/rate_limiter.py` | Per-key token bucket; caps a caller's sustained request rate while allowing bursts. |
 | `example.py` | Runnable end-to-end demo wiring all of the above together. |
 | `load_test.py` | Throughput/latency baseline against the mock LLM and an offline fallback, isolated from network calls. |
 
@@ -163,6 +164,25 @@ against `MockLLM` and an offline fallback stand-in — deliberately not
 would make the benchmark measure that service's latency instead of this
 codebase's.
 
+## Input Validation and Rate Limiting
+
+`SecureRAGAgent` wraps a `RAGAgent` and guards its one entry point, `answer()`,
+before delegating:
+
+- **Validation** (`validate_query_text`) rejects empty query text or text over
+  1000 chars. `QueryValidationError` propagates to the caller rather than being
+  swallowed — an HTTP handler would turn it into a 400. A synchronous request,
+  unlike an event source, has nowhere to silently drop the query.
+- **Rate limiting** (`RateLimiter`, a token bucket) is keyed by
+  `query.metadata["user_id"]` (falls back to `"anonymous"`) — swap in an API
+  key, tenant ID, or caller IP for whatever actually identifies your caller.
+  `QueryRateLimitedError` propagates the same way; an HTTP handler would turn
+  it into a 429.
+
+`example.py` wraps its `RAGAgent` with a deliberately tight budget (3 requests)
+so its own query list — one of them deliberately empty — demonstrates both
+paths without needing a much longer list to hit a realistic limit.
+
 ## Getting Started
 
 ### Prerequisites
@@ -194,7 +214,7 @@ You should see Python 3.11 or 3.12 installed.
 
 After setup, run tests to verify everything works:
 
-#### Python (52 tests, ~2.5 seconds)
+#### Python (71 tests, ~2.5 seconds)
 
 ```bash
 uv run pytest -v
@@ -205,7 +225,7 @@ uv run pytest -v
 tests/test_agent.py::test_a_fingerprint_is_stable_and_covers_the_model PASSED
 tests/test_agent.py::test_outcome_for_each_final_stop_reason[end_turn-ok] PASSED
 ...
-52 passed in 2.58s
+71 passed in 2.58s
 ```
 
 **What this means:** all grounding rules are working correctly, plus the operational
@@ -219,6 +239,9 @@ pieces added on top of them. Test files, by what they cover:
   server on an ephemeral port
 - `test_structured_logging.py` (6) — JSON formatting and correlation-ID binding
 - `test_load_test.py` (5) — the load-test harness itself produces sane output
+- `test_rate_limiter.py` (6) — token bucket capacity, refill, and per-key isolation
+- `test_validation.py` (13) — query length/emptiness boundaries, plus
+  `SecureRAGAgent`'s validation-before-rate-limit-before-delegate ordering
 
 #### TypeScript (16 tests, Node 22.18+ required)
 
@@ -248,10 +271,11 @@ Name                        Stmts   Miss Branch BrPart  Cover
 src/agent.py                  197      1     28      2    99%
 src/circuit_breaker.py         72      6     20      4    89%
 src/health.py                  57      0      8      0   100%
-src/integrations.py           162     61     22      2    62%
+src/integrations.py           185     61     30      2    68%
+src/rate_limiter.py            31      0      6      0   100%
 src/structured_logging.py      29      6     10      0    74%
 ---------------------------------------------------------------
-TOTAL                          517     74     88      8    85%
+TOTAL                          571     74    102      8    86%
 ```
 
 `agent.py`'s core grounding/scoring logic is the part that matters most and is
@@ -310,8 +334,9 @@ error: Found 3 formatting issues             # Need to run black
 
 ### Running the Test Suites
 
-Python (52 tests: grounding, scoring, circuit breakers, health checks, logging,
-load-test harness) and TypeScript (16 tests: the core grounding rules only —
+Python (71 tests: grounding, scoring, circuit breakers, health checks, logging,
+load-test harness, input validation, rate limiting) and TypeScript (16 tests:
+the core grounding rules only —
 the operational additions are Python-only, see [What's in the box](#whats-in-the-box)).
 Run one or both:
 

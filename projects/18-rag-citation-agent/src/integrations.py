@@ -30,12 +30,15 @@ from typing import Any
 from agent import (
     ABSTAIN_TEXT,
     LLM,
+    Answer,
     ContextItem,
     Query,
+    RAGAgent,
     Retriever,
     SearchFallback,
 )
 from circuit_breaker import CircuitBreaker
+from rate_limiter import RateLimiter
 from structured_logging import bind
 
 log = logging.getLogger("integrations")
@@ -533,3 +536,78 @@ class CircuitBreakerSearchFallback(SearchFallback):
         else:
             self._breaker.record_success()
             return result
+
+
+# --------------------------------------------------------------------------- #
+# Input Validation & Rate Limiting
+# --------------------------------------------------------------------------- #
+
+MAX_QUERY_LENGTH = 1000
+
+
+class QueryValidationError(Exception):
+    """A query's text violates a length or content rule."""
+
+
+class QueryRateLimitedError(Exception):
+    """A query was rejected because its rate-limit key is over budget."""
+
+
+def validate_query_text(text: str, max_length: int = MAX_QUERY_LENGTH) -> None:
+    """Reject empty or oversized query text before it reaches retrieval.
+
+    A user's question is untrusted input by construction. Without a bound,
+    a single pathologically long query inflates embedding cost, prompt
+    size, and the LLM bill for no benefit -- and an empty query has no
+    retrieval signal to act on at all.
+    """
+    if not text or not text.strip():
+        raise QueryValidationError("query text is empty")
+    if len(text) > max_length:
+        raise QueryValidationError(f"query is {len(text)} chars, max is {max_length}")
+
+
+class SecureRAGAgent:
+    """Wraps a RAGAgent with input validation and per-key rate limiting.
+
+    Not a RAGAgent subclass: it doesn't reimplement retrieve/generate/ground/
+    score, it guards the one public entry point (`answer`) before delegating.
+    Rate limiting is keyed by `query.metadata["user_id"]` (falling back to
+    "anonymous") -- swap in an API key, tenant ID, or caller IP depending on
+    what actually identifies your caller.
+
+    Both `QueryValidationError` and `QueryRateLimitedError` propagate rather
+    than being caught here: unlike an event source that can silently drop and
+    move on, a synchronous request needs its caller (an HTTP handler, a CLI)
+    to turn these into the right response -- a 400 for validation, a 429 for
+    rate limiting.
+
+    Usage:
+        agent = SecureRAGAgent(RAGAgent(retriever, llm, fallback, ...))
+        answer = await agent.answer(Query(text="...", metadata={"user_id": "u1"}))
+    """
+
+    def __init__(
+        self,
+        wrapped: RAGAgent,
+        *,
+        max_query_length: int = MAX_QUERY_LENGTH,
+        capacity: float = 20.0,
+        refill_per_s: float = 1.0,
+        metrics: Any = None,
+    ) -> None:
+        self._wrapped = wrapped
+        self._max_query_length = max_query_length
+        self._limiter = RateLimiter(capacity=capacity, refill_per_s=refill_per_s)
+        self._metrics = metrics
+
+    async def answer(self, query: Query) -> Answer:
+        validate_query_text(query.text, max_length=self._max_query_length)
+
+        key = query.metadata.get("user_id", "anonymous")
+        if not self._limiter.allow(key):
+            if self._metrics is not None:
+                self._metrics.increment("rag.rate_limited", user=key)
+            raise QueryRateLimitedError(f"rate limit exceeded for user {key!r}")
+
+        return await self._wrapped.answer(query)

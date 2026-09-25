@@ -26,6 +26,7 @@ from pathlib import Path
 
 from agent import (
     AutomationAgent,
+    EventSource,
     LoggingMetrics,
     RetryPolicy,
     TriggerEvaluator,
@@ -40,7 +41,9 @@ from integrations import (
     FileEventSource,
     FileIdempotencyStore,
     LogWorkflow,
+    RateLimitedEventSource,
     SlackNotifierWorkflow,
+    ValidatingEventSource,
 )
 from shutdown import install_signal_handlers
 from structured_logging import configure_json_logging
@@ -80,6 +83,15 @@ def create_example_events(path: Path) -> None:
                 "actor": "unknown-principal",
                 "actions": ["s3:GetObject"],
             },
+        },
+        {
+            # Oversized on purpose: demonstrates ValidatingEventSource dropping
+            # a payload that could never be processed safely, rather than
+            # letting it reach trigger evaluation, workflows, or the DLQ.
+            "id": "alert-004",
+            "source": "edr",
+            "type": "malware.detected",
+            "payload": {"dump": "x" * 20_000},
         },
     ]
 
@@ -136,14 +148,17 @@ async def main() -> None:
     # Create example events
     create_example_events(events_file)
 
-    # Setup integrations
-    source = FileEventSource(events_file)
+    # Setup metrics first: everything below reports to the same instance
+    metrics = LoggingMetrics()
+
+    # Setup integrations. Source is layered: validate payload shape/size,
+    # then rate-limit per Event.source, before anything reaches the agent.
+    source: EventSource = FileEventSource(events_file)
+    source = ValidatingEventSource(source, metrics=metrics)
+    source = RateLimitedEventSource(source, capacity=50, refill_per_s=10, metrics=metrics)
     store = FileIdempotencyStore(claims_file)
     dlq = FileDeadLetterQueue(dlq_file)
     triggers = define_triggers()
-
-    # Setup metrics first: circuit breakers report their state transitions to it
-    metrics = LoggingMetrics()
 
     # Wrap each workflow with a circuit breaker: if a workflow's downstream
     # starts failing repeatedly, it fails fast to the dead-letter queue

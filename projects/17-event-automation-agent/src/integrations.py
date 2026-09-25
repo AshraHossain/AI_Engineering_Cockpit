@@ -34,6 +34,7 @@ from agent import (
     WorkflowContext,
 )
 from circuit_breaker import CircuitBreaker
+from rate_limiter import RateLimiter
 from structured_logging import bind
 
 log = logging.getLogger("integrations")
@@ -401,3 +402,131 @@ class ContainmentWorkflow(Workflow):
             "workflow.contain", extra={"action": action, "target": target}
         )
         # TODO: call EDR/IAM/SOAR API for real containment
+
+
+# --------------------------------------------------------------------------- #
+# Input Validation
+# --------------------------------------------------------------------------- #
+
+MAX_PAYLOAD_BYTES = 16 * 1024
+MAX_STRING_LENGTH = 4096
+MAX_ARRAY_LENGTH = 100
+MAX_NESTING_DEPTH = 10
+
+
+class PayloadValidationError(Exception):
+    """An event's payload violates a size or shape limit."""
+
+
+def validate_payload(payload: dict[str, Any]) -> None:
+    """Reject unbounded payloads before they reach trigger evaluation.
+
+    A payload arrives from whatever produced the alert (EDR, SIEM,
+    CloudTrail) -- untrusted by construction. Without a bound, one
+    oversized or deeply-nested payload can inflate memory, JSON
+    serialization time (dead-letter writes, structured logging), or trip a
+    downstream API's own request-size limit further along the pipeline.
+    """
+    size = len(json.dumps(payload))
+    if size > MAX_PAYLOAD_BYTES:
+        raise PayloadValidationError(f"payload is {size} bytes, max is {MAX_PAYLOAD_BYTES}")
+    _check_bounds(payload, depth=0)
+
+
+def _check_bounds(value: Any, depth: int) -> None:
+    if depth > MAX_NESTING_DEPTH:
+        raise PayloadValidationError(f"payload nested past {MAX_NESTING_DEPTH} levels")
+    if isinstance(value, str):
+        if len(value) > MAX_STRING_LENGTH:
+            raise PayloadValidationError(f"string value exceeds {MAX_STRING_LENGTH} chars")
+    elif isinstance(value, list):
+        if len(value) > MAX_ARRAY_LENGTH:
+            raise PayloadValidationError(f"array exceeds {MAX_ARRAY_LENGTH} items")
+        for item in value:
+            _check_bounds(item, depth + 1)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _check_bounds(v, depth + 1)
+
+
+class ValidatingEventSource(EventSource):
+    """Wraps an EventSource; drops events whose payload fails `validate_payload`.
+
+    Dropped events are acked (settled), not nacked: a payload that is too
+    large or too deeply nested will not become valid on redelivery, so
+    nacking it would just loop forever. The rejection is logged at ERROR
+    with the reason, which is the audit trail for what got dropped and why.
+
+    Usage:
+        source = ValidatingEventSource(FileEventSource(path), metrics=metrics)
+    """
+
+    def __init__(self, wrapped: EventSource, *, metrics: Any = None) -> None:
+        self._wrapped = wrapped
+        self._metrics = metrics
+
+    async def events(self) -> AsyncIterator[Event]:
+        async for event in self._wrapped.events():
+            try:
+                validate_payload(event.payload)
+            except PayloadValidationError as e:
+                bind(log, correlation_id=event.id).error(
+                    "event failed payload validation; dropping",
+                    extra={"reason": str(e), "source": event.source},
+                )
+                if self._metrics is not None:
+                    self._metrics.increment("event.validation_failed", source=event.source)
+                await self._wrapped.ack(event)
+                continue
+            yield event
+
+    async def ack(self, event: Event) -> None:
+        await self._wrapped.ack(event)
+
+    async def nack(self, event: Event, reason: BaseException) -> None:
+        await self._wrapped.nack(event, reason)
+
+
+class RateLimitedEventSource(EventSource):
+    """Wraps an EventSource; throttles ingestion per `Event.source`.
+
+    A single noisy or compromised source (a SIEM stuck retrying, a webhook
+    under abuse) can't starve the agent's capacity for every other source:
+    each source gets its own token bucket. An event over budget is simply
+    not yielded this pass -- it is neither acked nor nacked, so a polling
+    source (like FileEventSource) will offer it again next cycle, and a
+    queue-backed source's own redelivery/visibility-timeout mechanism
+    handles it the same way a slow consumer would.
+
+    Usage:
+        source = RateLimitedEventSource(FileEventSource(path), capacity=50, refill_per_s=10)
+    """
+
+    def __init__(
+        self,
+        wrapped: EventSource,
+        *,
+        capacity: float = 50.0,
+        refill_per_s: float = 10.0,
+        metrics: Any = None,
+    ) -> None:
+        self._wrapped = wrapped
+        self._limiter = RateLimiter(capacity=capacity, refill_per_s=refill_per_s)
+        self._metrics = metrics
+
+    async def events(self) -> AsyncIterator[Event]:
+        async for event in self._wrapped.events():
+            if not self._limiter.allow(event.source):
+                bind(log, correlation_id=event.id).warning(
+                    "event rate-limited; deferring", extra={"source": event.source}
+                )
+                if self._metrics is not None:
+                    self._metrics.increment("event.rate_limited", source=event.source)
+                continue
+            yield event
+
+    async def ack(self, event: Event) -> None:
+        await self._wrapped.ack(event)
+
+    async def nack(self, event: Event, reason: BaseException) -> None:
+        await self._wrapped.nack(event, reason)

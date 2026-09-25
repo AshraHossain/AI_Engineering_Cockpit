@@ -24,6 +24,7 @@ Standard library only, in both languages. No runtime dependencies.
 | `src/structured_logging.py` | JSON log lines with a `correlation_id` bound per event, threaded through every component. |
 | `src/health.py` | `/healthz` (liveness) and `/readyz` (readiness) over plain `http.server`; readiness reflects real circuit-breaker state. |
 | `src/shutdown.py` | Turns SIGTERM/SIGINT into a clean `task.cancel()`; `AutomationAgent.run()` already drains in-flight work on cancellation. |
+| `src/rate_limiter.py` | Per-key token bucket; caps a source's sustained rate while allowing bursts. |
 | `example.py` | Runnable end-to-end demo wiring all of the above together. |
 | `load_test.py` | Throughput/latency baseline against in-memory stores, isolated from disk I/O. |
 
@@ -98,6 +99,25 @@ block awaits in-flight work, and `_handle()` releases the lease on
 cancellation. The demo's 5-second timeout exercises that same path, so a real
 signal and a timed shutdown behave identically.
 
+## Input validation and rate limiting
+
+`example.py`'s source is layered: `ValidatingEventSource` wraps `FileEventSource`,
+and `RateLimitedEventSource` wraps that.
+
+- **Validation** (`validate_payload`) rejects a payload over 16KB serialized,
+  nested past 10 levels, or containing a string over 4096 chars / array over
+  100 items. A rejected event is *acked*, not nacked — a payload this size
+  won't become valid on redelivery — logged at ERROR with the reason, and
+  counted as `event.validation_failed`. The demo's 4th sample event has a
+  20KB payload specifically to show this path.
+- **Rate limiting** (`RateLimiter`, a token bucket) is keyed by `Event.source`,
+  so one noisy or compromised source can't starve capacity for every other
+  source. An event over budget is neither acked nor nacked — it's simply not
+  yielded this pass, and a polling source reconsiders it next cycle.
+
+Both are `EventSource` wrappers, the same pattern as `CircuitBreakerWorkflow`:
+compose them around whatever real transport you plug in.
+
 ## Run it
 
 The demo creates sample events, processes them, and prints the claims ledger,
@@ -121,8 +141,10 @@ PYTHONPATH=src python load_test.py --count 2000 --concurrency 32
 
 ```bash
 uv run pytest
-# 47 passed: 12 agent lifecycle, 9 circuit breaker, 5 integrations,
-# 10 health checks, 6 structured logging, 4 load test harness, 1 shutdown
+# 70 passed: 12 agent lifecycle, 9 circuit breaker, 12 integrations
+# (workflow breaker, validating/rate-limited event sources), 10 health
+# checks, 10 payload validation, 6 rate limiter, 6 structured logging,
+# 4 load test harness, 1 shutdown
 ```
 
 ```bash
@@ -149,7 +171,8 @@ Measured with `pytest --cov --cov-branch` and `node --test --experimental-test-c
 | `src/agent.ts` | 100% | 94% |
 | `src/circuit_breaker.py` | 89% | — |
 | `src/health.py` | 100% | 100% |
-| `src/integrations.py` | 42% | — |
+| `src/integrations.py` | 60% | — |
+| `src/rate_limiter.py` | 100% | 100% |
 | `src/shutdown.py` | 57% | — |
 | `src/structured_logging.py` | 74% | — |
 
@@ -167,7 +190,7 @@ platform, not by bug; what's tested is the callback logic that wiring invokes.
 
 Done: retries with jitter, dead-lettering, lease-based idempotency, per-dependency
 circuit breaking, structured JSON logging with correlation IDs, health checks,
-graceful shutdown.
+graceful shutdown, payload validation, per-source rate limiting.
 
 Still to do:
 

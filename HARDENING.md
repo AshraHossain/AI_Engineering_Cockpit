@@ -166,35 +166,63 @@ this so a future edit can't silently reintroduce it.
 
 ---
 
-## Milestone 5: Security Hardening (Low Priority, but Important)
+## Milestone 5: Security Hardening (Low Priority, but Important) ✅ DONE
 
 **Why:** Production systems are targets. Validate inputs, rate-limit, rotate secrets.
 
-### Implementation
-- [ ] Input validation
-  - P17: validate Event.payload schema (no unbounded strings, arrays)
-  - P18: validate Query.text length (max 1000 chars) and format
-  
-- [ ] Rate limiting
-  - Per-source (EDR, SIEM, CloudTrail) rate limits on P17
-  - Per-user/API-key rate limits on P18
-  
-- [ ] Secret rotation
-  - Store API keys in environment, not config
-  - Rotate on CI (regenerate test keys weekly)
-  - Log key rotation events, not the keys themselves
+**Implemented:** `src/rate_limiter.py` in both projects (stdlib-only, duplicated by design, same as
+`circuit_breaker.py` / `structured_logging.py` / `health.py`) — a token-bucket `RateLimiter` keyed by
+an arbitrary string (an event source, a user ID), allowing bursts up to `capacity` while capping the
+sustained rate to `refill_per_s`. 6 tests each (`tests/test_rate_limiter.py`).
+
+- [x] Input validation
+  - P17: `validate_payload()` in `src/integrations.py` rejects oversized (>16KB serialized), deeply
+    nested (>10 levels), or long-string/array-valued payloads. `ValidatingEventSource` wraps any
+    `EventSource` and drops (acks, doesn't nack — a payload this large won't become valid on
+    redelivery) events that fail validation, logging the reason and reporting to metrics. 10 tests
+    for the pure validation logic (`tests/test_validation.py`) + 4 for the wrapper (`tests/test_integrations.py`).
+  - P18: `validate_query_text()` rejects empty or >1000-char query text. `SecureRAGAgent` wraps a
+    `RAGAgent` and validates before delegating; `QueryValidationError` propagates to the caller (an
+    HTTP handler would turn this into a 400) rather than being swallowed, since a synchronous
+    request — unlike an event source — has nowhere to silently drop the query. 6 tests
+    (`tests/test_validation.py`).
+- [x] Rate limiting
+  - P17: `RateLimitedEventSource` wraps any `EventSource`, keyed by `Event.source` — a single noisy
+    or compromised source (a SIEM stuck retrying) can't starve capacity for every other source. An
+    event over budget is silently not yielded this pass (not acked/nacked), so a polling source
+    naturally reconsiders it next cycle. 3 tests (`tests/test_integrations.py`).
+  - P18: `SecureRAGAgent` also rate-limits, keyed by `query.metadata["user_id"]` (falls back to
+    `"anonymous"`). `QueryRateLimitedError` propagates (an HTTP handler would turn this into a 429).
+    7 tests (`tests/test_validation.py`).
+- [x] Secret handling — audited, no code needed: `LLMWithClaude` never accepts or stores a key
+  parameter; the Anthropic SDK reads `ANTHROPIC_API_KEY` from the environment on its own, and no
+  code in either project ever logs or serializes it. "Store in environment, not config" is already
+  satisfied by construction. **Rotation** ("regenerate test keys weekly", "log rotation events") is a
+  CI/ops process against a real secret store this repo doesn't have — writing rotation code against
+  a secret manager that doesn't exist here would be speculative infrastructure, not hardening.
+  Revisit if/when this connects to a real credential store.
+
+**Both example scripts updated to demonstrate the new wrappers:**
+- P17: `example.py`'s `FileEventSource` is layered `ValidatingEventSource(RateLimitedEventSource(...))`,
+  and a 4th sample event has a deliberately oversized payload to show it getting dropped and counted.
+- P18: `example.py` wraps its `RAGAgent` in `SecureRAGAgent` with a deliberately tight rate-limit
+  budget (3 requests) so the demo's own query volume demonstrates a 429-equivalent, plus one
+  deliberately empty query to demonstrate the 400-equivalent.
+
+26 new tests across both projects (P17: 70 total, P18: 71 total, all passing).
 
 ---
 
 ## Quick Reference: What Changes Where
 
-| Component | Circuit Breaker | Logging | Health Check | Graceful Shutdown |
-|-----------|-----------------|---------|--------------|-------------------|
-| P17: Workflow | ✅ | ✅ | — | ✅ |
-| P17: EventSource | — | ✅ | ✅ | ✅ |
-| P18: Retriever | ✅ | ✅ | ✅ | — |
-| P18: LLM | ✅ | ✅ | ✅ | — |
-| P18: SearchFallback | ✅ | ✅ | ✅ | — |
+| Component | Circuit Breaker | Logging | Health Check | Graceful Shutdown | Validation | Rate Limit |
+|-----------|-----------------|---------|--------------|--------------------|------------|------------|
+| P17: Workflow | ✅ | ✅ | — | ✅ | — | — |
+| P17: EventSource | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| P18: Retriever | ✅ | ✅ | ✅ | — | — | — |
+| P18: LLM | ✅ | ✅ | ✅ | — | — | — |
+| P18: SearchFallback | ✅ | ✅ | ✅ | — | — | — |
+| P18: RAGAgent (via SecureRAGAgent) | — | — | — | — | ✅ | ✅ |
 
 ---
 
@@ -206,21 +234,29 @@ this so a future edit can't silently reintroduce it.
 3. ✅ Health check endpoints work and match Kubernetes expectations
 4. ✅ Load test scripts run and establish baselines
 5. ✅ Graceful shutdown is tested (can deploy without dropping requests)
+6. ✅ Untrusted input is bounded before it reaches core logic, and abusive
+   callers are rate-limited per-source / per-user
 
 **Testing:**
 - Integration tests for circuit breaker state transitions
 - Health check tests for each component combination (up/down)
 - Load test with simulated failures (LLM timeout, retriever error, etc.)
 - Chaos test: kill each dependency one at a time, verify graceful degradation
+- Validation tests for each payload/query boundary condition (empty, exactly
+  at the limit, one over the limit, nested past the depth limit)
+- Rate limiter tests for independent per-key budgets and refill-over-time
 
 ---
 
 ## Implementation Order (Recommended)
 
-1. **First:** Circuit breaker implementation (reusable)
-2. **Second:** Structured logging with correlation IDs
-3. **Third:** Health check endpoints and graceful shutdown
-4. **Fourth:** Load test baselines
-5. **Fifth:** Security hardening (only if time permits)
+1. **First:** Circuit breaker implementation (reusable) — ✅ done
+2. **Second:** Structured logging with correlation IDs — ✅ done
+3. **Third:** Health check endpoints and graceful shutdown — ✅ done
+4. **Fourth:** Load test baselines — ✅ done
+5. **Fifth:** Security hardening — ✅ done
 
-Estimated effort: 3-5 hours for milestones 1-3; 2-3 hours for 4-5.
+**Phase 2 is complete.** All five milestones shipped, 141 tests passing across both projects
+(P17: 70, P18: 71). What's explicitly deferred, and why, is called out in each milestone section
+above (a CI performance-regression gate needs a stable reference machine this repo's shared,
+multi-OS CI runners don't provide; secret rotation needs a real secret store this repo doesn't have).
