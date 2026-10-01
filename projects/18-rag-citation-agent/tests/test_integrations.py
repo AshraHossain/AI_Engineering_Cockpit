@@ -118,3 +118,14 @@ def test_single_failure_does_not_open_circuit_below_min_calls():
         raised = True
     assert raised is True
     assert wrapped.calls == 2
+
+
+def test_allow_reflects_circuit_state_for_health_checks():
+    breaker = CircuitBreakerRetriever(FlakyRetriever(), min_calls=2, failure_threshold=0.5)
+    assert breaker.allow() is True
+    for _ in range(2):
+        try:
+            asyncio.run(breaker.retrieve(Query(text="q"), k=3))
+        except RuntimeError:
+            pass
+    assert breaker.allow() is False

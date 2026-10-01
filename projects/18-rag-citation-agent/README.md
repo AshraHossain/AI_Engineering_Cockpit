@@ -2,11 +2,29 @@
 
 A production-ready skeleton for a retrieval-augmented agent that answers only from its sources, in both **Python** (`asyncio`) and **TypeScript** (Node `async`/`await`). Every sentence must cite a retrieved source; citations are validated against what the model was shown; low-confidence answers trigger one external search, and if still below threshold, the agent says **"I don't know."** instead of hallucinating.
 
-**What's implemented:** grounding logic (citation validation, confidence scoring, fallback routing, abstention). **16 tests at 99% coverage** verify all rules end-to-end.
+**What's implemented:** grounding logic (citation validation, confidence scoring, fallback routing, abstention), circuit breakers per dependency, structured JSON logging with correlation IDs, health checks, a load-test harness, and input validation / per-user rate limiting. **71 tests, 86% overall coverage** (99% on the core grounding/scoring logic — see [Coverage Report](#coverage-report)).
 
-**What's stubbed:** `Retriever`, `LLM`, and `SearchFallback` are marked `TODO(integration)` — wire them to your vector DB, model provider, and search API.
+**What's stubbed:** `Retriever`, `LLM`, and `SearchFallback` have realistic file-backed / mock implementations in `src/integrations.py` (a hardcoded corpus, canned or real-Claude responses, an offline-first search fallback) so the whole pipeline runs with no external services — but they're still marked `TODO(integration)` for wiring to your actual vector DB, model provider, and search API.
 
 **Zero dependencies:** standard library only in both languages.
+
+## What's in the box
+
+| File | What it is |
+|---|---|
+| `src/agent.py` | The core: retrieval, grounding, confidence scoring, fallback, abstention. |
+| `src/agent.ts` | The same core, component for component, in TypeScript. |
+| `src/integrations.py` | Realistic stubs: hardcoded-corpus retriever, mock/Claude LLM, offline-first search fallback. |
+| `src/circuit_breaker.py` | Per-dependency breaker; open circuit degrades to the safe default (empty context / abstain / empty results) instead of raising. |
+| `src/structured_logging.py` | JSON log lines with a `correlation_id` bound per query, threaded through retrieval and search. |
+| `src/health.py` | `/healthz` (liveness) and `/readyz` (readiness) over plain `http.server`; readiness reflects real circuit-breaker state. |
+| `src/rate_limiter.py` | Per-key token bucket; caps a caller's sustained request rate while allowing bursts. |
+| `example.py` | Runnable end-to-end demo wiring all of the above together. |
+| `load_test.py` | Throughput/latency baseline against the mock LLM and an offline fallback, isolated from network calls. |
+
+`src/agent.py` and `src/agent.ts` are component-for-component identical.
+Everything else in this table is **Python only** — there is no TypeScript twin
+yet for the integration stubs, circuit breaker, health checks, or logging.
 
 ## Architecture
 
@@ -108,6 +126,63 @@ class Answer:
     raw_context_ids: [str]    # IDs of sources used (for audit)
 ```
 
+## Resilience, Logging, and Health Checks
+
+Wrap any `Retriever`, `LLM`, or `SearchFallback` in the matching
+`CircuitBreaker*` class (`src/circuit_breaker.py`, `src/integrations.py`) to
+stop calling a dependency that's failing repeatedly. Each degrades to the
+answer `RAGAgent` would already produce for that failure mode, rather than
+raising:
+
+| Wrapped | Circuit open → |
+|---|---|
+| `CircuitBreakerRetriever` | empty context (routes to fallback search, same as a real empty retrieval) |
+| `CircuitBreakerLLM` | abstain immediately (`ABSTAIN_TEXT`) — never guess when the model is known-unhealthy |
+| `CircuitBreakerSearchFallback` | empty results (the primary answer, if any, still returns) |
+
+`example.py` wraps all three and registers a `HealthChecker` against them:
+`GET /healthz` is 200 whenever the process is alive; `GET /readyz` is 200 only
+if the LLM's circuit is closed **and** at least one of retriever/search-fallback
+is closed (`require_any` — matching `RAGAgent`'s own tolerance for one of those
+two being down). The demo prints both URLs on startup.
+
+Every log line is JSON (`configure_json_logging()`), with `correlation_id` set
+to the query's own ID via `bind(logger, correlation_id=query.id)` — grep one ID
+to follow a single query across retrieval, fallback, and the circuit-breaker
+wrappers. `LLM.complete()` takes a bare prompt string, not a `Query`, so
+`LLMWithClaude` has no correlation ID to attach without widening that core
+interface; that's a documented gap, not an oversight. Set
+`EXAMPLE_LOG_FORMAT=text` for plain text instead while developing.
+
+```bash
+PYTHONPATH=src python load_test.py --count 500 --concurrency 16
+```
+
+measures the pipeline's own retrieve → generate → ground → score overhead
+against `MockLLM` and an offline fallback stand-in — deliberately not
+`SearchFallbackStub`, whose real network attempt to a public SearXNG instance
+would make the benchmark measure that service's latency instead of this
+codebase's.
+
+## Input Validation and Rate Limiting
+
+`SecureRAGAgent` wraps a `RAGAgent` and guards its one entry point, `answer()`,
+before delegating:
+
+- **Validation** (`validate_query_text`) rejects empty query text or text over
+  1000 chars. `QueryValidationError` propagates to the caller rather than being
+  swallowed — an HTTP handler would turn it into a 400. A synchronous request,
+  unlike an event source, has nowhere to silently drop the query.
+- **Rate limiting** (`RateLimiter`, a token bucket) is keyed by
+  `query.metadata["user_id"]` (falls back to `"anonymous"`) — swap in an API
+  key, tenant ID, or caller IP for whatever actually identifies your caller.
+  `QueryRateLimitedError` propagates the same way; an HTTP handler would turn
+  it into a 429.
+
+`example.py` wraps its `RAGAgent` with a deliberately tight budget (3 requests)
+so its own query list — one of them deliberately empty — demonstrates both
+paths without needing a much longer list to hit a realistic limit.
+
 ## Getting Started
 
 ### Prerequisites
@@ -139,7 +214,7 @@ You should see Python 3.11 or 3.12 installed.
 
 After setup, run tests to verify everything works:
 
-#### Python (16 tests, ~0.1 seconds)
+#### Python (71 tests, ~2.5 seconds)
 
 ```bash
 uv run pytest -v
@@ -150,16 +225,23 @@ uv run pytest -v
 tests/test_agent.py::test_a_fingerprint_is_stable_and_covers_the_model PASSED
 tests/test_agent.py::test_outcome_for_each_final_stop_reason[end_turn-ok] PASSED
 ...
-16 passed in 0.05s
+71 passed in 2.58s
 ```
 
-**What this means:** all grounding rules are working correctly. Each test verifies one rule:
-- Citation marker renumbering
-- Unknown citation detection
-- Confidence scoring
-- Fallback merging
-- Abstention when below threshold
-- Error propagation
+**What this means:** all grounding rules are working correctly, plus the operational
+pieces added on top of them. Test files, by what they cover:
+- `test_agent.py` (16) — citation renumbering, unknown-ref detection, confidence
+  scoring, fallback merging, abstention, error propagation
+- `test_circuit_breaker.py` (9) — CLOSED/OPEN/HALF_OPEN state transitions
+- `test_integrations.py` (6) — the circuit-breaker wrappers around
+  Retriever/LLM/SearchFallback degrade to their safe defaults when open
+- `test_health.py` (10) — readiness aggregation logic, plus the real HTTP
+  server on an ephemeral port
+- `test_structured_logging.py` (6) — JSON formatting and correlation-ID binding
+- `test_load_test.py` (5) — the load-test harness itself produces sane output
+- `test_rate_limiter.py` (6) — token bucket capacity, refill, and per-key isolation
+- `test_validation.py` (13) — query length/emptiness boundaries, plus
+  `SecureRAGAgent`'s validation-before-rate-limit-before-delegate ordering
 
 #### TypeScript (16 tests, Node 22.18+ required)
 
@@ -179,17 +261,28 @@ node --test tests/agent.test.ts
 #### Coverage Report
 
 ```bash
-uv run pytest --cov=src --cov-report=term
+uv run pytest --cov=src --cov-branch --cov-report=term
 ```
 
 **Output shows:**
 ```
-Name           Stmts   Miss  Cover
-----------------------------------
-src/agent.py     197      1    99%
+Name                        Stmts   Miss Branch BrPart  Cover
+---------------------------------------------------------------
+src/agent.py                  197      1     28      2    99%
+src/circuit_breaker.py         72      6     20      4    89%
+src/health.py                  57      0      8      0   100%
+src/integrations.py           185     61     30      2    68%
+src/rate_limiter.py            31      0      6      0   100%
+src/structured_logging.py      29      6     10      0    74%
+---------------------------------------------------------------
+TOTAL                          571     74    102      8    86%
 ```
 
-99% coverage means the code is heavily tested. The 1 missed line is an edge case in error handling that's hard to trigger in tests.
+`agent.py`'s core grounding/scoring logic is the part that matters most and is
+covered most thoroughly (99%). `integrations.py` is lower on purpose: it's
+stub code you're expected to replace, and a lot of it is file I/O and a real
+network call attempt (`SearchFallbackStub`) that's exercised by `example.py`
+and `load_test.py` rather than by unit tests.
 
 ### Understanding the Test Results
 
@@ -239,9 +332,13 @@ All checks passed!                           # Good ✅
 error: Found 3 formatting issues             # Need to run black
 ```
 
-### Running the Test Suites (16 tests total)
+### Running the Test Suites
 
-Both Python and TypeScript test the same 16 rules. Run one or both:
+Python (71 tests: grounding, scoring, circuit breakers, health checks, logging,
+load-test harness, input validation, rate limiting) and TypeScript (16 tests:
+the core grounding rules only —
+the operational additions are Python-only, see [What's in the box](#whats-in-the-box)).
+Run one or both:
 
 **Python tests with coverage:**
 ```bash
@@ -280,11 +377,23 @@ uv run black --check 18-rag-citation-agent/
 
 ## Integration Checklist
 
-Before production:
+`src/integrations.py` already has working (if simplistic) implementations of
+all three — `FileBasedRetriever` (hardcoded corpus, word-overlap ranking),
+`MockLLM` / `LLMWithClaude` (canned responses, or real Claude if
+`ANTHROPIC_API_KEY` is set), `SearchFallbackStub` (tries a public SearXNG
+instance, falls back to a fixed mock result). Before production:
 
-- [ ] **Wire the retriever.** Implement `Retriever.get_context()` to call your vector DB. Ensure scores are [0, 1].
-- [ ] **Wire the LLM.** Implement `LLM.complete()` to call your model provider (Claude recommended; see comments for SDK integration). Test that the model respects the grounding prompt and produces `[n]` citations.
-- [ ] **Wire search fallback.** Implement `SearchFallback.search()` to call your external search API (SearXNG, Bing, Brave, etc.).
+- [ ] **Replace the retriever's corpus.** `FileBasedRetriever` returns results
+  from five hardcoded Wikipedia snippets. Implement `Retriever.retrieve()`
+  against your vector DB or hybrid search instead. Ensure scores are [0, 1].
+- [ ] **Confirm the LLM in production.** `LLMWithClaude` already calls Claude
+  when `ANTHROPIC_API_KEY` is set — verify the model respects the grounding
+  prompt and produces `[n]` citations at your expected volume and latency.
+- [ ] **Replace the search fallback's target.** `SearchFallbackStub` calls a
+  *public* SearXNG instance — fine for a demo, not for anything handling real
+  traffic or real user queries. Point `SearchFallback.search()` at your own
+  search infrastructure (private SearXNG, Bing, Brave, etc.) and restrict
+  domains, since results feed the prompt as untrusted data.
 - [ ] **Tune the confidence threshold.** Collect labelled questions with known good answers. Plot fallback rate, abstain rate, and accuracy against threshold values (0.4–0.8). Pick the threshold that balances false negatives (missing good answers) vs false positives (returning bad answers).
 - [ ] **Add entailment checking.** The current `ConfidenceScorer` proves a sentence cites a real source, not that the source actually supports it. Layer an NLI model or LLM-judge (`confidence_score` has a TODO) to check entailment.
 - [ ] **Secure your context.** The prompt fences retrieved and search snippets as data, but enforce these extra safeguards:

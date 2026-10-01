@@ -23,6 +23,7 @@ This will:
 
 import asyncio
 import logging
+import os
 import sys
 
 from agent import (
@@ -31,18 +32,28 @@ from agent import (
     Query,
     RAGAgent,
 )
+from health import HealthChecker, serve_health
 from integrations import (
+    CircuitBreakerLLM,
+    CircuitBreakerRetriever,
+    CircuitBreakerSearchFallback,
     FileBasedRetriever,
     FileMetricsLogger,
     LLMWithClaude,
+    QueryRateLimitedError,
+    QueryValidationError,
     SearchFallbackStub,
+    SecureRAGAgent,
 )
+from structured_logging import configure_json_logging
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-)
+# One JSON object per log line -- grep any query's correlation_id across
+# every component it touched. Set EXAMPLE_LOG_FORMAT=text for the old
+# human-readable format while developing.
+if os.environ.get("EXAMPLE_LOG_FORMAT") == "text":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+else:
+    configure_json_logging()
 
 log = logging.getLogger("example")
 
@@ -51,34 +62,63 @@ async def main() -> None:
     """Run the RAG agent on example queries."""
     log.info("=== RAG Citation Agent Example ===")
 
-    # Setup integrations
-    retriever = FileBasedRetriever()
+    # Setup integrations, each wrapped in a circuit breaker: if a dependency
+    # starts failing repeatedly, its wrapper degrades to the safe default
+    # (empty context / abstain / empty results) instead of raising.
+    metrics = FileMetricsLogger("/tmp/rag_metrics.jsonl")
+    retriever = CircuitBreakerRetriever(FileBasedRetriever(), metrics=metrics)
 
     # LLMWithClaude falls back to MockLLM internally if the Anthropic SDK
     # or ANTHROPIC_API_KEY isn't available -- no try/except needed here.
-    llm = LLMWithClaude(model="claude-sonnet-5")
+    llm = CircuitBreakerLLM(LLMWithClaude(model="claude-sonnet-5"), metrics=metrics)
 
-    fallback = SearchFallbackStub()
-    metrics = FileMetricsLogger("/tmp/rag_metrics.jsonl")
+    fallback = CircuitBreakerSearchFallback(SearchFallbackStub(), metrics=metrics)
 
-    # Create components
-    grounder = CitationGrounder()
-    scorer = ConfidenceScorer(threshold=0.6)
-
-    # Create the RAG agent
-    agent = RAGAgent(
-        retriever=retriever,
-        llm=llm,
-        grounder=grounder,
-        scorer=scorer,
-        fallback=fallback,
-        metrics=metrics,
+    # Health checks read the same breakers the agent calls through. Ready if
+    # the LLM works AND (retriever OR fallback) works -- RAGAgent already
+    # routes around either one on its own, so both being down is what
+    # actually matters for readiness.
+    health = HealthChecker()
+    health.register("retriever", retriever.allow)
+    health.register("llm", llm.allow)
+    health.register("search_fallback", fallback.allow)
+    health.require_any("retriever", "search_fallback")
+    health_server = serve_health(health, port=0)
+    log.info(
+        "health endpoints ready",
+        extra={
+            "healthz": f"http://127.0.0.1:{health_server.server_port}/healthz",
+            "readyz": f"http://127.0.0.1:{health_server.server_port}/readyz",
+        },
     )
 
-    # Example queries
+    # Create components (ConfidenceScorer takes no args; threshold lives on RAGAgent)
+    grounder = CitationGrounder()
+    scorer = ConfidenceScorer()
+
+    # Create the RAG agent (retriever, llm, fallback are positional)
+    agent = RAGAgent(
+        retriever,
+        llm,
+        fallback,
+        grounder=grounder,
+        scorer=scorer,
+        metrics=metrics,
+        threshold=0.6,
+    )
+
+    # Wrap with input validation + per-user rate limiting. Capacity is
+    # deliberately tight (3 requests, slow refill) so the demo's own query
+    # volume for "demo-user" actually demonstrates a 429-equivalent rather
+    # than requiring a much longer query list to hit a realistic budget.
+    secure_agent = SecureRAGAgent(agent, capacity=3, refill_per_s=0.5, metrics=metrics)
+
+    # Example queries: one deliberately empty (validation), the rest normal
+    # enough to also exercise the rate limit before they all finish.
     queries = [
         "What is Python and what is it used for?",
         "How does asyncio work in Python?",
+        "",  # deliberately invalid: SecureRAGAgent rejects before retrieval runs
         "What is retrieval-augmented generation?",
         "What is the meaning of life?",  # Should trigger "I don't know" fallback
         "Explain TypeScript",
@@ -88,11 +128,11 @@ async def main() -> None:
     log.info("=" * 60)
 
     for query_text in queries:
-        query = Query(text=query_text)
-        log.info("Query: %s", query_text)
+        query = Query(text=query_text, metadata={"user_id": "demo-user"})
+        log.info("Query: %r", query_text)
 
         try:
-            answer = await agent.answer(query)
+            answer = await secure_agent.answer(query)
             log.info("Answer: %s", answer.text)
             log.info(
                 "Confidence: %.2f | Citations: %d | Fallback: %s",
@@ -105,6 +145,10 @@ async def main() -> None:
                 for i, citation in enumerate(answer.citations, 1):
                     log.info("  [%d] %s (%s)", i, citation.title, citation.source_uri)
 
+        except QueryValidationError as e:
+            log.warning("Query rejected (would be HTTP 400): %s", e)
+        except QueryRateLimitedError as e:
+            log.warning("Query rejected (would be HTTP 429): %s", e)
         except Exception:
             log.exception("Error processing query")
 
@@ -113,6 +157,9 @@ async def main() -> None:
     log.info("=== Results Summary ===")
     log.info("Metrics logged to /tmp/rag_metrics.jsonl")
     log.info("To view metrics: cat /tmp/rag_metrics.jsonl | jq .")
+
+    health_server.shutdown()
+    health_server.server_close()
 
 
 if __name__ == "__main__":
