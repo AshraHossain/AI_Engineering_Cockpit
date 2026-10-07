@@ -58,7 +58,7 @@ jobs:
         # so inline pragmas or a baseline would not survive there.
         # .detectsecrets is the baseline file: it contains known/audited "secrets"
         # and should not be scanned against itself.
-        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/|\.detectsecrets' > /tmp/secrets-scan.json
+        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/|\.detectsecrets|node_modules/' > /tmp/secrets-scan.json
 
       - name: Fail if new secrets are found
         run: |
