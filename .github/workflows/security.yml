@@ -58,7 +58,12 @@ jobs:
         # so inline pragmas or a baseline would not survive there.
         # .detectsecrets is the baseline file: it contains known/audited "secrets"
         # and should not be scanned against itself.
-        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/|\.detectsecrets' > /tmp/secrets-scan.json
+        # --exclude-secrets skips four specific values: the public demo logins of
+        # practicesoftwaretesting.com that the Playwright projects use (welcome01,
+        # pass123), a CSS selector (input#password) and a placeholder API key.
+        # JSON and Markdown code fences cannot carry an inline pragma. Any other
+        # secret still fails the scan.
+        run: uvx detect-secrets scan --all-files --exclude-files '\.git/|\.venv|uv\.lock|^graphify-out/|\.detectsecrets' --exclude-secrets '^welcome01$' --exclude-secrets '^pass123$' --exclude-secrets '^input#password$' --exclude-secrets 'sk-ant-your-key-here' > /tmp/secrets-scan.json
 
       - name: Fail if new secrets are found
         run: |
