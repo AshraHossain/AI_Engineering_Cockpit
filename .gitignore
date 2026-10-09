@@ -74,3 +74,8 @@ outputs/*
 # publishes to github.com/AshraHossain/human_in_loop_approval_agent.
 # Tracked there, not here -- do not re-add it to the cockpit.
 projects/human_in_loop_approval_agent/
+
+# Node/Playwright: dependencies and generated reports, never committed
+node_modules/
+playwright-report/
+test-results/
