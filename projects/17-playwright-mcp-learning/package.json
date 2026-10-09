@@ -1,0 +1,27 @@
+{
+  "name": "17-playwright-mcp-learning",
+  "version": "1.0.0",
+  "description": "Learning Playwright MCP - LLM-driven test automation approach",
+  "main": "index.js",
+  "scripts": {
+    "dev": "echo 'MCP tools are invoked via Claude Code - see README'",
+    "mcp:test": "echo 'Use Claude Code with /loop to run MCP tests'",
+    "mcp:debug": "echo 'MCP browser screenshots available in debug logs'"
+  },
+  "keywords": [
+    "playwright",
+    "mcp",
+    "testing",
+    "automation",
+    "ai",
+    "claude"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2"
+  }
+}
