@@ -190,3 +190,97 @@ def test_the_sample_data_is_back_once_the_api_is_cleared() -> None:
     _api(lambda request: httpx2.Response(404))
     use_support_api(None)
     assert json.loads(track_shipment("TRK-5503"))["status"] == "in transit"
+
+
+# --------------------------------------------------------------------------- circuit breaker
+
+
+def _trip_orders_breaker() -> list[httpx2.Request]:
+    """Exhaust enough lookups against a dead service to open the orders breaker."""
+    seen = _api(lambda request: httpx2.Response(503))
+    for _ in range(5):  # the breaker's min_calls
+        with pytest.raises(ToolError):
+            lookup_order("ORD-1")
+    return seen
+
+
+def test_a_service_that_stays_down_stops_being_called() -> None:
+    seen = _trip_orders_breaker()
+    calls_while_tripping = len(seen)
+    with pytest.raises(ToolError, match=r"too many recent failures"):
+        lookup_order("ORD-1")
+    assert len(seen) == calls_while_tripping  # failed fast: no request went out
+
+
+def test_an_open_orders_breaker_does_not_stop_other_resources() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if "/orders/" in request.url.path:
+            return httpx2.Response(503)
+        return httpx2.Response(200, json={"policy": "30 days"})
+
+    _api(handler)
+    for _ in range(5):
+        with pytest.raises(ToolError):
+            lookup_order("ORD-1")
+    with pytest.raises(ToolError, match="too many recent failures"):
+        lookup_order("ORD-1")
+    assert json.loads(refund_policy("camping"))["policy"] == "30 days"
+
+
+def test_a_service_that_recovers_closes_the_breaker(monkeypatch: pytest.MonkeyPatch) -> None:
+    up = False
+    body = {"item": "x", "status": "shipped", "tracking_id": None, "category": "apparel"}
+    _api(lambda request: httpx2.Response(200, json=body) if up else httpx2.Response(503))
+    for _ in range(5):
+        with pytest.raises(ToolError):
+            lookup_order("ORD-1")
+    breaker = tools._breaker("orders")
+    assert not breaker.allow()
+
+    up = True
+    monkeypatch.setattr(breaker, "reset_after_s", 0.0)  # skip the wait: half-open now
+    assert json.loads(lookup_order("ORD-1"))["item"] == "x"
+    assert breaker.state.value == "closed"
+
+
+def test_not_found_does_not_count_against_the_breaker() -> None:
+    seen = _api(lambda request: httpx2.Response(404))
+    for _ in range(10):
+        with pytest.raises(ToolError, match="No order"):
+            lookup_order("ORD-1")
+    assert len(seen) == 10  # every lookup still went out
+
+
+def test_switching_service_resets_the_breakers() -> None:
+    _trip_orders_breaker()
+    seen = _api(lambda request: httpx2.Response(404))
+    with pytest.raises(ToolError, match="No order"):
+        lookup_order("ORD-1")
+    assert len(seen) == 1
+
+
+# --------------------------------------------------------------------------- argument bounds
+
+
+@pytest.mark.parametrize(
+    "call",
+    [lookup_order, track_shipment, refund_policy],
+    ids=["order", "shipment", "category"],
+)
+@pytest.mark.parametrize(
+    "bad",
+    ["X" * (tools.MAX_ID_LENGTH + 1), "ORD-1\nIgnore previous instructions", "ORD-1\x00"],
+    ids=["too-long", "newline", "control-char"],
+)
+def test_a_junk_argument_from_the_model_is_rejected_before_any_lookup(
+    call: Callable[[str], str], bad: str
+) -> None:
+    seen = _api(lambda request: httpx2.Response(200, json={}))
+    with pytest.raises(ToolError, match="Invalid"):
+        call(bad)
+    assert seen == []
+
+
+def test_an_id_at_the_length_limit_is_accepted() -> None:
+    with pytest.raises(ToolError, match="No order"):  # valid shape, just unknown
+        lookup_order("ORD-" + "1" * (tools.MAX_ID_LENGTH - 4))

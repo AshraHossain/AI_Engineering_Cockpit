@@ -31,6 +31,7 @@ from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttribu
 from opentelemetry.trace import Status, StatusCode, Tracer
 
 from alerts import LoopGuard
+from correlation import bound_request
 from tools import TOOL_FUNCTIONS, ServiceError
 from tracing import to_ns
 
@@ -281,34 +282,35 @@ def run_agent(
         messages=[{"role": "user", "content": question}],
         max_iterations=max_iterations,
     )
-    try:
-        for message in runner:
-            end = clock()
-            usage = message.usage
-            _llm_span(tracer, version.model, message, start=run.mark, end=end)
-            perf.record(
-                f"model.generate[{version.version}]",
-                end - run.mark,
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
-            )
-            cost += costs.record_usage(
-                PROJECT, version.model, usage.input_tokens, usage.output_tokens
-            ).cost_usd
-            input_tokens += usage.input_tokens
-            output_tokens += usage.output_tokens
-            last = message
-            run.mark = end
-            loop_reason = guard.check(
-                (b.name, b.input) for b in message.content if b.type == "tool_use"
-            )
-            if loop_reason:
-                outcome = "loop"
-                break
-    except anthropic.AuthenticationError:
-        raise
-    except (anthropic.APIStatusError, anthropic.APIConnectionError):
-        outcome = "api_error"
+    with bound_request(request_id):
+        try:
+            for message in runner:
+                end = clock()
+                usage = message.usage
+                _llm_span(tracer, version.model, message, start=run.mark, end=end)
+                perf.record(
+                    f"model.generate[{version.version}]",
+                    end - run.mark,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                )
+                cost += costs.record_usage(
+                    PROJECT, version.model, usage.input_tokens, usage.output_tokens
+                ).cost_usd
+                input_tokens += usage.input_tokens
+                output_tokens += usage.output_tokens
+                last = message
+                run.mark = end
+                loop_reason = guard.check(
+                    (b.name, b.input) for b in message.content if b.type == "tool_use"
+                )
+                if loop_reason:
+                    outcome = "loop"
+                    break
+        except anthropic.AuthenticationError:
+            raise
+        except (anthropic.APIStatusError, anthropic.APIConnectionError):
+            outcome = "api_error"
 
     if outcome is None:
         outcome = outcome_for(last.stop_reason if last else None)

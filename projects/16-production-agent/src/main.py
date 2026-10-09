@@ -54,6 +54,7 @@ from canary import (
     RolloutController,
     register_versions,
 )
+from correlation import RequestIdFilter
 from fake_model import FakeClock, scripted_client
 from scenarios import SCENARIOS
 from tools import SAMPLE_QUESTIONS, SupportAPI, use_support_api
@@ -144,7 +145,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = parse_args(argv)
     load_dotenv(PROJECT_DIR / ".env")
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s [%(request_id)s] %(message)s")
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(RequestIdFilter())
 
     clock: Callable[[], float]
     if args.dry_run:

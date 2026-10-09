@@ -322,3 +322,29 @@ def test_both_versions_send_the_same_request_apart_from_the_model(
         "track_shipment",
         "refund_policy",
     ]
+
+
+# ------------------------------------------------------------ log correlation
+
+
+def test_a_tool_logs_under_the_request_that_called_it(
+    clock: FakeClock, tracer: Tracer, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tools
+    from correlation import RequestIdFilter
+
+    monkeypatch.setattr(tools, "BACKOFF_S", 0)
+    tools.use_support_api(
+        tools.SupportAPI(
+            "https://support.example.test/v1",
+            transport=httpx2.MockTransport(lambda request: httpx2.Response(503)),
+        )
+    )
+    caplog.handler.addFilter(RequestIdFilter())
+
+    record, _, _ = run(where_is_order, clock=clock, tracer=tracer)
+
+    assert record.service_errors >= 1
+    outage = [r for r in caplog.records if "failed after" in r.getMessage()]
+    assert outage
+    assert all(r.request_id == "req-0001" for r in outage)

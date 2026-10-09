@@ -111,8 +111,9 @@ are compared on.
 | times out, drops the connection, or answers 429 or 5xx | retries up to 3 attempts in all, waiting 0.25s and then 0.5s, with a 5s timeout per attempt | `The orders service is unavailable right now (HTTP 503).` if all three fail |
 | answers another 4xx (401, 403, 400) | fails at once without retrying, since this is a configuration problem, and logs an error | `The orders service rejected the request (HTTP 401).` |
 | answers 200 with a missing field, a wrong type, or no JSON at all | refuses the answer and logs the field names it got, never the values | `The shipments service returned an unexpected response.` |
+| has exhausted its retries on at least half of its last 10 lookups (judged once 5 have been made) | fails at once, with no request and no retry, for 30s; then lets one lookup through, and closes again if it succeeds | `The orders service is unavailable right now (too many recent failures; retrying in 12s).` |
 
-The last three rows are the service's failures, not the model's. They raise
+The last four rows are the service's failures, not the model's. They raise
 `tools.ServiceError`, which the run counts as a *service error*, apart from
 the model's own tool errors (a malformed or unknown ID). See
 [Outages](#outages-arent-blamed-on-the-model) for what that changes.
@@ -120,6 +121,19 @@ the model's own tool errors (a malformed or unknown ID). See
 The ID in the path comes from the model, so it is URL-encoded as a single path
 segment: `ORD-../admin` is requested as `/orders/ORD-..%2Fadmin`, not
 `/admin`.
+
+Each resource (`orders`, `shipments`, `refund-policies`) has its own circuit
+breaker, so a failing refund-policies endpoint does not stop order lookups. A
+404 counts as the service answering, not as a failure, and switching
+`use_support_api` clears every breaker. An open breaker raises the same
+`ServiceError` as an outage, so it is counted as a service error and never
+blamed on the model version.
+
+The model also fills in the order ID, tracking ID and category from customer
+text, so each tool rejects an argument longer than `MAX_ID_LENGTH` (64)
+characters or containing a non-printable one (newlines, control characters)
+before any lookup. The model sees `Invalid order ID: expected at most 64
+printable characters.` and can recover, as with any other bad input.
 
 ## Watch the alerts
 
@@ -172,12 +186,13 @@ can notice.
 
 | Mechanism | Where | Notes |
 | --- | --- | --- |
-| Tools | `src/tools.py` | Sample data by default; `use_support_api` switches to HTTP with retries and contract checks. Only `main.py` switches it, in live mode |
+| Tools | `src/tools.py`, `src/circuit_breaker.py` | Sample data by default; `use_support_api` switches to HTTP with retries, a per-resource circuit breaker, argument bounds and contract checks. Only `main.py` switches it, in live mode |
 | Tracing | `src/tracing.py`, `src/agent.py` | Spans created by hand with OpenInference attribute names; question and answer text pass through the cockpit's PII masking first |
 | Loop guard | `src/alerts.py` `LoopGuard` | Third identical tool call, or fifth call to one tool, stops the run before those tools execute; `max_iterations=8` is the backstop |
 | Alerts | `src/alerts.py` `AlertMonitor` | Six rules over the last 20 runs per version; fire once, resolve once; logged, appended to `outputs/alerts.jsonl`, and attached to the span. `blaming()` is the subset that says the version itself is bad |
 | Canary | `src/canary.py` | Hash routing, a judge comparing both versions, promotion through the cockpit `ModelRegistry` after two `ApprovalWorkflow` approvals, automatic rollback during a 30-run watch; acts only on alerts that blame the version, and holds while the others fire |
 | Dashboards | `cockpit.monitoring`, `alerts-dashboard.html` | Per-version run, model and tool latency plus cost at the end of every run; alert history in the browser |
+| Log correlation | `src/correlation.py` | Every log record inside a run carries its request ID (`WARNING [req-0042] orders lookup ... failed`), so an outage warning from deep in a tool names the request it hit |
 | Notifications | `src/slack_alerts.py` | New alert transitions to a Slack webhook, in order, each exactly once |
 
 The six alert rules, each over one version's last 20 runs:

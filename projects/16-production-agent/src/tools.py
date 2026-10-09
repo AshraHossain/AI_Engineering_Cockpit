@@ -17,6 +17,11 @@ with 404 for an unknown ID. Only those fields reach the model. Timeouts,
 connection errors, 429 and 5xx are retried; a lookup that still fails, or that
 the service rejects or answers off-contract, raises :class:`ServiceError`.
 
+Retries only help one lookup. Each resource also has a circuit breaker: after
+enough lookups exhaust their retries, further lookups fail fast with a
+:class:`ServiceError` until the service has had time to recover, instead of
+each one spending three attempts and the backoff against an outage.
+
 Tools raise the SDK's ``ToolError`` on bad input. The Tool Runner turns that
 into an ``is_error`` tool result the model can recover from.
 """
@@ -33,6 +38,8 @@ from urllib.parse import quote
 
 import httpx2
 from anthropic.lib.tools import ToolError
+
+from circuit_breaker import CircuitBreaker
 
 _logger = logging.getLogger(__name__)
 
@@ -121,16 +128,43 @@ class SupportAPI:
 
 
 _support_api: SupportAPI | None = None
+_breakers: dict[str, CircuitBreaker] = {}
+_BREAKER_RESET_S: Final = 30.0
+MAX_ID_LENGTH: Final = 64
+"""Longest ID, tracking ID or category a tool accepts from the model."""
 
 
 def use_support_api(api: SupportAPI | None) -> None:
     """Send tool lookups to ``api``, or back to the built-in sample data with None.
+
+    Switching service also clears every breaker, so a new API starts closed.
 
     Args:
         api: The service to use, or None for the sample data.
     """
     global _support_api
     _support_api = api
+    _breakers.clear()
+
+
+def _breaker(resource: str) -> CircuitBreaker:
+    # One per resource: a failing refund-policies endpoint should not stop
+    # order lookups.
+    if resource not in _breakers:
+        _breakers[resource] = CircuitBreaker(
+            name=f"support.{resource}", reset_after_s=_BREAKER_RESET_S
+        )
+    return _breakers[resource]
+
+
+def _check_id(label: str, value: str) -> None:
+    """Reject an argument no real ID looks like, before it reaches a lookup.
+
+    The model fills these in from customer text, so they are untrusted. The
+    length cap and printable-only rule keep junk out of URLs and logs.
+    """
+    if len(value) > MAX_ID_LENGTH or not value.isprintable():
+        raise ToolError(f"Invalid {label}: expected at most {MAX_ID_LENGTH} printable characters.")
 
 
 def _lookup(resource: str, key: str) -> dict[str, Any] | None:
@@ -145,6 +179,12 @@ def _fetch(api: SupportAPI, resource: str, key: str) -> dict[str, Any] | None:
         headers["Authorization"] = f"Bearer {api.token}"
     # The key comes from the model: encode it so it stays one path segment.
     path = f"/{resource}/{quote(key, safe='')}"
+    breaker = _breaker(resource)
+    if not breaker.allow():
+        raise ServiceError(
+            f"The {resource} service is unavailable right now "
+            f"(too many recent failures; retrying in {breaker.time_until_retry():.0f}s)."
+        )
     problem = ""
     # ponytail: one client per lookup, so no connection reuse. A run makes a
     # handful of tool calls; share a client if tool latency starts to matter.
@@ -160,6 +200,7 @@ def _fetch(api: SupportAPI, resource: str, key: str) -> dict[str, Any] | None:
                 problem = type(exc).__name__
                 continue
             if response.status_code == 404:
+                breaker.record_success()
                 return None
             if response.status_code in _RETRY_STATUSES:
                 problem = f"HTTP {response.status_code}"
@@ -171,7 +212,9 @@ def _fetch(api: SupportAPI, resource: str, key: str) -> dict[str, Any] | None:
                 raise ServiceError(
                     f"The {resource} service rejected the request (HTTP {response.status_code})."
                 )
+            breaker.record_success()
             return _contract_fields(resource, response)
+    breaker.record_failure()
     _logger.warning("%s lookup %s failed after %d attempts: %s", resource, path, ATTEMPTS, problem)
     raise ServiceError(f"The {resource} service is unavailable right now ({problem}).")
 
@@ -198,6 +241,7 @@ def lookup_order(order_id: str) -> str:
     Args:
         order_id: Order ID in the form ORD-12345.
     """
+    _check_id("order ID", order_id)
     if not order_id.startswith("ORD-"):
         raise ToolError(f"Invalid order ID {order_id!r}: expected the form ORD-12345.")
     order = _lookup("orders", order_id)
@@ -212,6 +256,7 @@ def track_shipment(tracking_id: str) -> str:
     Args:
         tracking_id: Tracking ID from the order, in the form TRK-1234.
     """
+    _check_id("tracking ID", tracking_id)
     shipment = _lookup("shipments", tracking_id)
     if shipment is None:
         raise ToolError(f"No shipment with tracking ID {tracking_id}.")
@@ -224,6 +269,7 @@ def refund_policy(category: str) -> str:
     Args:
         category: Product category from the order, e.g. footwear.
     """
+    _check_id("category", category)
     found = _lookup("refund-policies", category)
     if found is None:
         raise ToolError(f"No refund policy for category {category!r}.")
