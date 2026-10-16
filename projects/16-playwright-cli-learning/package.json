@@ -1,0 +1,30 @@
+{
+  "name": "16-playwright-cli-learning",
+  "version": "1.0.0",
+  "description": "Learning Playwright CLI - Traditional test automation approach",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:auth": "playwright test tests/auth.spec.ts",
+    "test:products": "playwright test tests/products.spec.ts",
+    "test:cart": "playwright test tests/cart.spec.ts",
+    "test:debug": "playwright test --debug",
+    "test:headed": "playwright test --headed",
+    "test:chrome": "playwright test --project=chromium",
+    "test:firefox": "playwright test --project=firefox",
+    "test:webkit": "playwright test --project=webkit",
+    "test:report": "playwright show-report"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "automation",
+    "e2e"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

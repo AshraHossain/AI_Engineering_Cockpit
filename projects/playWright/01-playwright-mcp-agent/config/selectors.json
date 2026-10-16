@@ -1,0 +1,38 @@
+{
+  "site": "https://practicesoftwaretesting.com",
+  "pages": {
+    "login": {
+      "email_input": "input#email",
+      "password_input": "input#password",
+      "submit_button": "button[type='submit']",
+      "error_message": ".alert-danger",
+      "success_redirect": "/dashboard"
+    },
+    "products": {
+      "product_card": ".product-item",
+      "product_title": ".product-title",
+      "product_price": ".product-price",
+      "add_to_cart_button": ".btn-add-to-cart",
+      "product_link": "a.product-link",
+      "filter_category": "select#category"
+    },
+    "cart": {
+      "cart_icon": ".cart-icon",
+      "cart_items": ".cart-item",
+      "remove_button": ".btn-remove",
+      "checkout_button": ".btn-checkout",
+      "empty_cart_message": ".empty-cart",
+      "cart_total": ".cart-total"
+    },
+    "checkout": {
+      "address_input": "input#address",
+      "city_input": "input#city",
+      "zip_input": "input#zip",
+      "country_select": "select#country",
+      "payment_method": "select#payment_method",
+      "card_number": "input#card-number",
+      "place_order_button": "button.btn-place-order",
+      "order_confirmation": ".order-success"
+    }
+  }
+}
